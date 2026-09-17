@@ -32,7 +32,63 @@
 * 写回前会自动在 `%LOCALAPPDATA%\ExcelViewer\backup\` 留一份带时间戳的备份。
 * 不喜欢写回就用「另存为…」，全程不碰原文件。
 
-改动比对是把**改动过的格子**摊成一张清单表（行号 / 列 / 原值 / 新值），可以直接搜索、复制。
+改动比对摊成一张清单表（类型 / 行号 / 列 / 原值 / 新值），可以直接搜索、复制：
+
+* **先做行对齐，再比格子**。挑一个「非空且互不重复」的列当行主键（配表的 ID 列），
+  再用保序匹配把两边的行对上；中间插入或删除一行只会报「新增 1 行 / 删除 1 行」，
+  不会把后面所有行都说成改过（详见下方「已修的坑」）。
+* 对上的一对行逐格比较，报「修改 · 行号 · 列 · 原值 · 新值」。
+* 只有一边有的行报「新增行 / 删除行」，并把整行内容放进「新值 / 原值」列，
+  底部预览条里能看全文。
+
+## 接 SVN 差异对比（TortoiseSVN / 命令行）
+
+查看器可以直接当 SVN 的外部 diff 工具用，`--diff-svn` 就是给这个场景准备的入口。
+
+### TortoiseSVN
+
+导入 `注册SVN差异对比.reg`（只写 HKCU，不需要管理员权限），它把
+`HKCU\Software\TortoiseSVN\DiffTools` 下的 `.xlsx / .xlsm / .xlsb / .xls` 指向查看器；
+**全局的 Diff（Beyond Compare）和 Merge（UnityYAMLMerge）都不动**。
+
+也可以在界面上改：右键 → TortoiseSVN → 设置 → 差异查看器 → 高级 → 选中 `.xlsx` → 编辑，
+把外部程序填成：
+
+```
+"…\excel2csv\viewer\publish\ExcelViewer.exe" --diff-svn %base %mine
+```
+
+之后右键任意 xlsx →「比较差异 / 与上一版本比较」就直接进查看器的改动对比视图，
+标题栏会显示成 `Item.xlsx (revision 12)` 这种好认的名字。
+
+想恢复 TortoiseSVN 自带的 Excel 脚本，把那几个值改回：
+
+```
+wscript.exe "C:\Program Files\TortoiseSVN\Diff-Scripts\diff-xls.js" %base %mine //E:javascript
+```
+
+### 命令行 svn
+
+```powershell
+# 单个文件；.xlsx 在 svn 眼里是二进制，必须加 --force 才会调用外部工具
+svn diff --force --diff-cmd "…\viewer\publish\ExcelViewer.exe" -x "--diff-svn" 某个表.xlsx
+
+# 想省掉 --force，就写进 %APPDATA%\Subversion\config：
+#   [helpers]
+#   diff-cmd = C:\...\viewer\publish\ExcelViewer.exe
+#   diff-extensions = --diff-svn
+```
+
+### 它为什么需要额外这一步
+
+svn 传进来的旧版本文件是 `.svn\pristine\XX\<sha1>.svn-base` —— **没有扩展名**，
+而查看器是按扩展名挑解析器的，直接传进去只会得到「这个文件类型暂时看不了」。
+所以 `--diff-svn` 会先跳过 `-L "标签"` 参数、取最后两个真实文件，再按文件头嗅探真实格式
+（zip → xlsx / xlsm / xlsb，OLE → xls，其余按 csv），必要时复制一份带正确扩展名的临时副本到
+`%LOCALAPPDATA%\ExcelViewer\svn-diff\`（超过 3 天的自动清理，可用 `EXCELVIEWER_WORKSPACE` 改位置）。
+
+> 冲突合并（`Merge`）这条线还没接：Excel 没法自动合并，硬做只会产生坏文件。
+> 目前 `MergeTools` 里没有 `.xlsx`，走的是全局 Merge，对 Excel 是错的——要处理冲突得人工挑。
 
 ### 进入编辑流程的三种方式
 
@@ -120,7 +176,8 @@ WPS/Excel 打开配表慢，主要慢在「一次性把整个工作簿全部解�
 * **自动识别表头行**：项目配表的结构是 `GDE_IGNORE` / `GDE_FIELD_NAMES` / 中文描述 / `GDE_FIELD_TYPES`，
   查看器会在前 8 行里找 `GDE_FIELD_NAMES`，把那一行标成表头（加粗 + 淡蓝底），
   并在打开时自动滚到它附近。找不到标记就按普通表格处理（第一行当表头）。
-* **改动比对**：把两个工作簿的逐格差异摊成清单表（行号 / 列 / 原值 / 新值）。
+* **改动比对**：把两个工作簿的差异摊成清单表（类型 / 行号 / 列 / 原值 / 新值），
+  先做行对齐再比格子，插入/删除行不会被误报成"后面全改了"；也能直接当 SVN 的外部 diff 工具（`--diff-svn`）。
 * 支持格式：`xlsx` / `xlsm` / `xlsb` / `xls` / `csv`。
 
 ## 快捷键
@@ -146,6 +203,7 @@ excel2csv/
 ├─ ExcelViewer.cmd                  便捷启动器（可拖文件到它上面）
 ├─ ExcelViewerEdit.vbs              「用副本编辑」入口（右键菜单调用它）
 ├─ 注册双击打开.reg                 注册 ProgId / 打开方式 / 右键菜单
+├─ 注册SVN差异对比.reg              让 TortoiseSVN 用查看器比对 xlsx（--diff-svn）
 ├─ 设为默认打开方式.cmd             注册 + 跳到系统设置页设默认
 ├─ NuGet.config                     离线还原配置（本机无法访问 nuget.org）
 ├─ viewer/                          查看器源码（C# / WPF）
@@ -155,8 +213,9 @@ excel2csv/
 │  ├─ Controls/                     自绘虚拟化表格、布局模型、文本绘制、配色
 │  ├─ Search/                       全表搜索
 │  ├─ DiffView.cs                   改动比对视图
+│  ├─ SvnDiffInput.cs               --diff-svn：认 SVN 传来的参数 + 按内容补扩展名
 │  ├─ EditSession.cs                编辑器查找、无界面比对输出
-│  └─ TempWorkspace.cs              工作区 / 副本 / 备份目录
+│  └─ TempWorkspace.cs              工作区 / 副本 / 备份目录 / svn 临时副本
 ├─ bench/                           解析引擎基准与数据核对（复用 viewer 的加载器）
 └─ tools/
    ├─ launch.ps1                    启动器逻辑（中文提示放这里）
@@ -234,6 +293,10 @@ $exe = 'viewer\publish\ExcelViewer.exe'
 # 文本渲染器 A/B（TextFormatter 与 FormattedText 的落点对比）
 & $exe --textprobe
 
+# 改动比对自检：行对齐的典型用例（插一行 / 删一行 / 改一格 / 无主键 / 重复行）+ SVN 参数解析
+# 注意：它会往 %LOCALAPPDATA%\ExcelViewer\svn-diff 写临时副本，沙箱里跑请先设 EXCELVIEWER_WORKSPACE
+& $exe --diff-selftest
+
 # 改动比对：无界面输出 JSON（退出码 1 = 有改动）与改动清单
 & $exe --diff-json 原.xlsx 新.xlsx --out=diff.json
 & $exe --diff-png  原.xlsx 新.xlsx --out=清单.csv --png=预览.png
@@ -286,6 +349,25 @@ python tools\make_diff_fixture.py test\Item.xlsx $env:TEMP\edited\Item_edited.xl
 * **`DiffView.Hide()` 不能顺手把 `GridHost` 一起藏掉**：`GridHost` 是**主表格**的宿主，
   比对表只是它里面的第二层。藏了它，关掉改动比对后整个数据区会一片空白
   （看着像"文件没加载"）。只藏 `DiffView._grid` 就够。
+* **比对必须先做行对齐，不能按行列下标硬比**：早期版本 `CompareSheets` 就是 `for r, for c` 逐格比，
+  只要中间插入或删除一行，后面所有行的内容都会错位。实测 200 行的表**中间插一行会报出 307 处"改动"**，
+  配表几千行时 diff 完全没法看——这正是 SVN 对接前必须先解决的事。
+  现在的做法：先挑一个"非空且互不重复"的列当行主键（配表的 ID 列，采样前 400 行判断），
+  用「两边都唯一出现」的锚 + 最长上升子序列做保序匹配，锚之间的区间再按"相等的格子数"贪心配对；
+  没有主键的表退化成整行文本做锚。改这块时一定要跑 `--diff-selftest`，六个用例都是踩过的坑。
+* **整行全空的行要在比对前剔掉**：配表中间常常夹着大片空行，它们既不是唯一锚、两边又都一样，
+  会导致"删一行 + 加一行"成对刷屏（实测 31k 行的表刷出 4,879 条假增删）。
+  现在 `AlignRows` 先用 `Sheet.IsRowEmpty` 过滤出有内容的行号再对齐，报出来的行号仍然是原始行号。
+* **区间过大时不能做 O(n²) 配对，但也不能不配**：贪心配对的工作量上限是 4096 对，
+  超了要退回"按位置配 + 每对仍过相似度门槛"。如果直接跳过配对，两张**完全相同**的文件
+  都会因为重复行（不是唯一锚）而报出几千条假增删——`--diff-selftest` 里有这个用例。
+* **svn 传进来的旧版本文件没有扩展名**：命令行 `svn diff --diff-cmd` 给的是
+  `.svn\pristine\XX\<sha1>.svn-base`，TortoiseSVN 的 `%base` 也不保证保留扩展名，
+  而 `WorkbookLoader.IsSupported` 是看扩展名的。所以 `--diff-svn` 必须按文件头嗅探格式
+  （zip 再看 `xl/workbook.bin` 分 xlsb、看 `xl/vbaProject.bin` 分 xlsm；OLE 头当 xls；其余 csv）
+  并复制成带扩展名的临时副本。另外 svn 会把参数拼成
+  `<程序> <额外参数> -L "标签1" -L "标签2" 文件1 文件2`，**文件路径是最后两个**，
+  而且 `.xlsx` 被当成二进制，不加 `--force` 根本不会调用外部 diff 工具。
 * **单元格文本必须限制成一行**（`FormattedText.MaxLineCount = 1` + `Trimming = CharacterEllipsis`）：
   行高是固定的 22px，而 `FormattedText` 只要设了 `MaxTextWidth` 就会**按列宽自动折行**，
   多行文本块再被 `Draw` 垂直居中，于是第二行开始会画到上下相邻的行上去——

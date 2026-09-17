@@ -38,6 +38,12 @@ public partial class App : Application
             return;
         }
 
+        if (e.Args.Any(a => a.Equals("--diff-selftest", StringComparison.OrdinalIgnoreCase)))
+        {
+            Shutdown(DiffSelfTest.Run());
+            return;
+        }
+
         if (e.Args.Any(a => a.Equals("--bench", StringComparison.OrdinalIgnoreCase)))
         {
             Shutdown(LayoutProbe.Bench(e.Args));
@@ -91,6 +97,45 @@ public partial class App : Application
             }
         }
 
+        // --diff-svn：SVN 的外部 diff 入口（TortoiseSVN 与 svn --diff-cmd 都走这里）
+        if (e.Args.Any(a => a.Equals("--diff-svn", StringComparison.OrdinalIgnoreCase)))
+        {
+            SvnDiffInput.Pair? svnPair;
+            try
+            {
+                svnPair = SvnDiffInput.Resolve(e.Args);
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(
+                    window,
+                    "比对前的准备工作没能完成：" + ex.Message + "\n\n"
+                    + "（SVN 传来的旧版本文件没有扩展名，查看器需要先复制一份带扩展名的临时副本，"
+                    + "这一步写临时目录失败时会看到这条提示。）",
+                    "Excel 查看器",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Warning);
+                return;
+            }
+
+            if (svnPair is null)
+            {
+                MessageBox.Show(
+                    window,
+                    "没有从命令行里认出要比对的两个文件。\n\n"
+                    + "TortoiseSVN：设置 → 差异查看器 → 高级 → .xlsx →\n"
+                    + "    \"…\\viewer\\publish\\ExcelViewer.exe\" --diff-svn %base %mine\n\n"
+                    + "命令行：svn diff --force --diff-cmd \"…\\viewer\\publish\\ExcelViewer.exe\" -x \"--diff-svn\"",
+                    "Excel 查看器",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Warning);
+                return;
+            }
+
+            window.ShowDiffAsync(svnPair.OldPath, svnPair.NewPath, svnPair.OldLabel, svnPair.NewLabel);
+            return;
+        }
+
         // --diff 老文件 新文件：直接进改动比对视图
         if (e.Args.Any(a => a.Equals("--diff", StringComparison.OrdinalIgnoreCase)))
         {
@@ -130,23 +175,33 @@ internal static class DiffProbe
         Console.WriteLine(report.Summary);
         foreach (var s in report.Sheets.Where(s => s.HasChanges))
         {
-            Console.WriteLine($"  [{s.SheetName}] {s.Changes.Count} 处改动");
-            foreach (var c in s.Changes.Take(20))
+            Console.WriteLine($"  [{s.SheetName}] {s.ChangeSummary}");
+            foreach (var row in s.Rows.Take(20))
             {
-                Console.WriteLine($"    第{c.Row + 1}行 {Controls.ExcelGrid.ColumnName(c.Col)}列: "
-                    + $"\"{Short(c.OldValue)}\" -> \"{Short(c.NewValue)}\"");
+                if (row.Kind == RowChangeKind.Modified)
+                {
+                    foreach (var c in row.Cells.Take(6))
+                    {
+                        Console.WriteLine($"    {row.KindText} 第{c.Row + 1}行 {Controls.ExcelGrid.ColumnName(c.Col)}列: "
+                            + $"\"{Short(c.OldValue)}\" -> \"{Short(c.NewValue)}\"");
+                    }
+
+                    continue;
+                }
+
+                Console.WriteLine($"    {row.KindText} 第{row.DisplayRow + 1}行 (ID {Short(row.Key)}): \"{Short(row.RowText)}\"");
             }
         }
 
         var pool = new StringPool();
-        var changed = report.Sheets.FirstOrDefault(s => s.Changes.Count > 0);
+        var changed = report.Sheets.FirstOrDefault(s => s.HasChanges);
         if (changed is null)
         {
-            Console.WriteLine("没有逐格改动，跳过清单渲染。");
+            Console.WriteLine("没有改动，跳过清单渲染。");
             return 0;
         }
 
-        var sheet = DiffService.BuildChangeSheet(changed.SheetName, changed.Changes, pool, Controls.ExcelGrid.ColumnName);
+        var sheet = DiffService.BuildChangeSheet(changed, pool, Controls.ExcelGrid.ColumnName);
 
         var csvPath = args.FirstOrDefault(a => a.StartsWith("--out=", StringComparison.OrdinalIgnoreCase))?[6..];
         if (!string.IsNullOrEmpty(csvPath))
@@ -257,8 +312,45 @@ internal static class MainProbe
         Console.WriteLine($"StatusSize/Row/Hint    = {window.StatusSize.Text} | {window.StatusRow.Text} | {window.StatusHint.Text}");
         Console.WriteLine($"LoadTimeText           = {window.LoadTimeText.Text}");
 
-        var cellArg = args.FirstOrDefault(a => a.StartsWith("--cell=", StringComparison.OrdinalIgnoreCase))?[7..];
-        if (cellArg is not null)
+        // --diff-svn / --diff：把比对视图也探一遍（顺便验证 SVN 传来的参数能被正确认出来）
+        var diffRequested = false;
+        if (args.Any(a => a.Equals("--diff-svn", StringComparison.OrdinalIgnoreCase)))
+        {
+            var pair = SvnDiffInput.Resolve(args);
+            Console.WriteLine($"SVN 参数解析           = {(pair is null ? "(失败)" : pair.OldLabel + "  ←→  " + pair.NewLabel)}");
+            if (pair is not null)
+            {
+                window.ShowDiffAsync(pair.OldPath, pair.NewPath, pair.OldLabel, pair.NewLabel);
+                diffRequested = true;
+            }
+        }
+        else if (args.Any(a => a.Equals("--diff", StringComparison.OrdinalIgnoreCase)))
+        {
+            var files = args.Where(a => !a.StartsWith('-') && File.Exists(a)).Take(2).ToArray();
+            if (files.Length == 2)
+            {
+                window.ShowDiffAsync(files[0], files[1]);
+                diffRequested = true;
+            }
+        }
+
+        if (diffRequested)
+        {
+            var diffDeadline = DateTime.UtcNow + TimeSpan.FromSeconds(120);
+            while (DateTime.UtcNow < diffDeadline)
+            {
+                Pump(200);
+                if (window.DiffBanner.Visibility == Visibility.Visible)
+                {
+                    break;
+                }
+            }
+
+            Console.WriteLine($"改动比对横幅           = {window.DiffBannerText.Text}");
+            Console.WriteLine($"改动比对明细           = {window.DiffDetailText.Text}");
+        }
+
+        var cellArg = args.FirstOrDefault(a => a.StartsWith("--cell=", StringComparison.OrdinalIgnoreCase))?[7..];        if (cellArg is not null)
         {
             var parts = cellArg.Split(',', 2);
             if (parts.Length == 2 && int.TryParse(parts[0], out var pr) && int.TryParse(parts[1], out var pc))
@@ -863,6 +955,233 @@ internal static class LayoutProbe
         return 0;
     }
 }
+
+/// <summary>
+/// 改动比对的自检：用合成数据把"行对齐"的几种典型情况跑一遍，并检查 SVN 参数解析/格式嗅探。
+/// 用法: ExcelViewer.exe --diff-selftest
+/// 这些用例都是曾经真出过问题的地方（插入一行报出几百处改动、空行刷屏、无扩展名的 pristine 文件）。
+/// </summary>
+internal static class DiffSelfTest
+{
+    private static int _failures;
+
+    public static int Run()
+    {
+        _failures = 0;
+
+        CaseCellEdit();
+        CaseRowInsert();
+        CaseRowDelete();
+        CaseMixed();
+        CaseDuplicateRows();
+        CaseNoKeyColumn();
+        CaseSvnArguments();
+
+        if (_failures == 0)
+        {
+            Console.WriteLine("DIFF SELFTEST OK");
+            return 0;
+        }
+
+        Console.WriteLine($"DIFF SELFTEST FAILED: {_failures} 项不通过");
+        return 1;
+    }
+
+    // ---------------- 用例 ----------------
+
+    private static void CaseCellEdit()
+    {
+        var report = Compare(Table(100), Edit(Table(100), 50, 2, "改过了"));
+        Check("改一个格子只报 1 处", report.TotalChangedCells == 1 && report.TotalAddedRows == 0 && report.TotalRemovedRows == 0, report.Summary);
+    }
+
+    private static void CaseRowInsert()
+    {
+        // 曾经的 bug：200 行表中间插一行会报出 300+ 处"改动"
+        var newRows = Table(200).ToList();
+        newRows.Insert(100, new[] { "GDE_IGNORE", "ID9999", "新加的一行", "新说明" });
+        var report = Compare(Table(200), newRows.ToArray());
+        Check("中间插一行只报 1 行新增", report.TotalAddedRows == 1 && report.TotalRemovedRows == 0 && report.TotalChangedCells == 0, report.Summary);
+    }
+
+    private static void CaseRowDelete()
+    {
+        var rows = Table(100).ToList();
+        rows.RemoveAt(30);
+        var report = Compare(Table(100), rows.ToArray());
+        Check("删一行只报 1 行删除", report.TotalRemovedRows == 1 && report.TotalAddedRows == 0 && report.TotalChangedCells == 0, report.Summary);
+    }
+
+    private static void CaseMixed()
+    {
+        var oldRows = Table(100);
+        var newRows = Table(100);
+        newRows = Edit(newRows, 10, 2, "改了A");
+        newRows = Edit(newRows, 80, 3, "改了B");
+        var list = newRows.ToList();
+        list.Insert(50, new[] { "GDE_IGNORE", "ID7777", "插入行", "X" });
+        list.RemoveAt(20);
+        var report = Compare(oldRows, list.ToArray());
+        Check(
+            "混合改动：2 格 + 1 增设 + 1 删除",
+            report.TotalChangedCells == 2 && report.TotalAddedRows == 1 && report.TotalRemovedRows == 1,
+            report.Summary);
+    }
+
+    private static void CaseDuplicateRows()
+    {
+        // 重复行不是唯一锚，会整段落进"区间"；两边一模一样时必须报 0 改动（曾经会刷出几千条假增删）
+        var rows = new List<string[]> { new[] { "GDE_IGNORE", "同一条内容" } };
+        for (var i = 0; i < 300; i++)
+        {
+            rows.Add(new[] { "同一条内容", "同一条内容" });
+        }
+
+        var report = Compare(rows.ToArray(), rows.ToArray());
+        Check("两边完全一样（含大量重复行）→ 0 改动", !report.HasChanges, report.Summary);
+    }
+
+    private static void CaseNoKeyColumn()
+    {
+        // 没有唯一列的表：只能靠整行文本 + 相似度配对
+        var oldRows = NoKeyTable(60);
+        var newRows = NoKeyTable(60).ToList();
+        newRows[10] = new[] { "类型A", "内容10改了" };
+        newRows.Insert(31, new[] { "类型A", "插入内容" });
+        var report = Compare(oldRows, newRows.ToArray());
+        Check(
+            "无主键表：1 格修改 + 1 行新增",
+            report.TotalChangedCells == 1 && report.TotalAddedRows == 1 && report.TotalRemovedRows == 0,
+            report.Summary);
+    }
+
+    private static void CaseSvnArguments()
+    {
+        var dir = Path.Combine(Path.GetTempPath(), "ExcelViewer-diffselftest-" + Guid.NewGuid().ToString("N")[..6]);
+        Directory.CreateDirectory(dir);
+        try
+        {
+            // 造一个 zip 头 + xl/workbook.xml 的假 xlsx，但故意用 pristine 的 .svn-base 文件名
+            var pristine = Path.Combine(dir, "29e3e4770d9b96cd165b9d261c51fda557a78d19.svn-base");
+            using (var fs = File.Create(pristine))
+            using (var zip = new System.IO.Compression.ZipArchive(fs, System.IO.Compression.ZipArchiveMode.Create))
+            {
+                using var w = new StreamWriter(zip.CreateEntry("xl/workbook.xml").Open());
+                w.Write("<workbook/>");
+            }
+
+            var work = Path.Combine(dir, "T.xlsx");
+            File.Copy(pristine, work, overwrite: true);
+
+            var args = new[]
+            {
+                "--diff-svn",
+                "-L", work + "\t(revision 7)",
+                "-L", work + "\t(working copy)",
+                pristine,
+                work,
+            };
+
+            var pair = SvnDiffInput.Resolve(args);
+            Check("SVN 参数解析成功", pair is not null);
+            if (pair is null)
+            {
+                return;
+            }
+
+            Check("无扩展名的 pristine 被补成 .xlsx", pair.OldPath.EndsWith(".xlsx", StringComparison.OrdinalIgnoreCase), pair.OldPath);
+            Check("带扩展名的文件不复制", string.Equals(pair.NewPath, work, StringComparison.OrdinalIgnoreCase), pair.NewPath);
+            Check("标签保留了 (revision 7)", pair.OldLabel.Contains("(revision 7)"), pair.OldLabel);
+            Check("标签里没有制表符", !pair.OldLabel.Contains('\t'), pair.OldLabel);
+        }
+        finally
+        {
+            try
+            {
+                Directory.Delete(dir, recursive: true);
+            }
+            catch (IOException)
+            {
+            }
+        }
+    }
+
+    // ---------------- 工具 ----------------
+
+    private static DiffReport Compare(string[][] oldRows, string[][] newRows)
+    {
+        var pool = new StringPool();
+        var oldSheet = Build(pool, "S", oldRows);
+        var newSheet = Build(pool, "S", newRows);
+        var diff = DiffService.CompareSheets(oldSheet, newSheet, "S");
+        return new DiffReport
+        {
+            OldPath = "old",
+            NewPath = "new",
+            Sheets = new List<SheetDiff> { diff },
+            RemovedSheets = new List<string>(),
+            AddedSheets = new List<string>(),
+        };
+    }
+
+    private static Sheet Build(StringPool pool, string name, string[][] rows)
+    {
+        var sheet = new Sheet(name, pool);
+        foreach (var row in rows)
+        {
+            sheet.BeginRow();
+            foreach (var cell in row)
+            {
+                sheet.AddCell(cell);
+            }
+
+            sheet.EndRow();
+        }
+
+        sheet.Finish();
+        return sheet;
+    }
+
+    private static string[][] Table(int rows)
+    {
+        var list = new List<string[]> { new[] { "GDE_FIELD_NAMES", "ID", "Name", "Desc" } };
+        for (var i = 1; i <= rows; i++)
+        {
+            list.Add(new[] { "GDE_IGNORE", $"ID{i:0000}", $"名称{i}", $"说明{i}" });
+        }
+
+        return list.ToArray();
+    }
+
+    private static string[][] NoKeyTable(int rows)
+    {
+        var list = new List<string[]>();
+        for (var i = 1; i <= rows; i++)
+        {
+            list.Add(new[] { "类型A", $"内容{i}" });
+        }
+
+        return list.ToArray();
+    }
+
+    /// <summary>改一个格子（1-based 行号，模拟策划在 Excel 里改值）。</summary>
+    private static string[][] Edit(string[][] rows, int row1Based, int col, string value)
+    {
+        var copy = rows.Select(r => r.ToArray()).ToArray();
+        copy[row1Based - 1][col] = value;
+        return copy;
+    }
+
+    private static void Check(string what, bool ok, string detail = "")
+    {
+        Console.WriteLine($"  [{(ok ? "OK" : "FAIL")}] {what}{(ok || detail.Length == 0 ? string.Empty : "  → " + detail)}");
+        if (!ok)
+        {
+            _failures++;
+        }
+    }
+}
+
 
 
 

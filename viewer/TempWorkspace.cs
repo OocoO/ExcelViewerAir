@@ -53,6 +53,54 @@ public static class TempWorkspace
         }
     }
 
+    /// <summary>
+    /// SVN 外部 diff 用的临时副本目录（`--diff-svn`）。
+    /// svn 传进来的旧版本文件常常是 `.svn\pristine\XX\&lt;sha1&gt;.svn-base`，**没有扩展名**，
+    /// 而查看器是按扩展名挑解析器的，所以要先按文件头嗅探格式、复制成带扩展名的副本。
+    /// </summary>
+    public static string SvnDiffDir
+    {
+        get
+        {
+            var dir = Path.Combine(Root, "svn-diff");
+            Directory.CreateDirectory(dir);
+            return dir;
+        }
+    }
+
+    /// <summary>
+    /// 清掉过期的临时副本。这些副本在查看器关掉后就没用了，但当时可能正被读取，
+    /// 所以不在退出时删，而是每次新建副本前顺手清理几天前的。
+    /// </summary>
+    public static void CleanupSvnDiff(TimeSpan olderThan)
+    {
+        try
+        {
+            var root = SvnDiffDir;
+            var deadline = DateTime.Now - olderThan;
+            foreach (var dir in Directory.EnumerateDirectories(root))
+            {
+                try
+                {
+                    if (Directory.GetLastWriteTime(dir) < deadline)
+                    {
+                        Directory.Delete(dir, recursive: true);
+                    }
+                }
+                catch (IOException)
+                {
+                    // 还在被别的查看器窗口读着，下次再说
+                }
+                catch (UnauthorizedAccessException)
+                {
+                }
+            }
+        }
+        catch (IOException)
+        {
+        }
+    }
+
     /// <summary>把原文件复制到工作区，返回副本路径。原文件只被读，不会被写。</summary>
     public static string CreateCopy(string sourcePath)
     {

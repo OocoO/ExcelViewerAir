@@ -944,8 +944,12 @@ public partial class MainWindow
     }
 
 
-    /// <summary>打开 diff 视图：比对原文件与（temp 副本）新文件，列出改动的格子。</summary>
-    public async void ShowDiffAsync(string oldPath, string newPath)
+    /// <summary>
+    /// 打开 diff 视图：比对原文件与（temp 副本）新文件，列出改动的行与格子。
+    /// <paramref name="oldLabel"/> / <paramref name="newLabel"/> 是给界面看的两侧名字
+    /// （SVN 模式下是「文件 (revision N)」，比临时文件路径好认得多）。
+    /// </summary>
+    public async void ShowDiffAsync(string oldPath, string newPath, string? oldLabel = null, string? newLabel = null)
     {
         if (!File.Exists(oldPath) || !File.Exists(newPath))
         {
@@ -965,8 +969,8 @@ public partial class MainWindow
             AppPreviewPane(false);
             PreviewCollapsedAddress.Text = string.Empty;
             PreviewCollapsedText.Text = "改动比对中 — 关闭对比后内容预览条会自动恢复";
-            _diffView?.Show(report, oldPath, newPath);
-            Title = $"Excel 查看器 — 改动比对：{Path.GetFileName(newPath)}";
+            _diffView?.Show(report, oldLabel ?? oldPath, newLabel ?? newPath);
+            Title = $"Excel 查看器 — 改动比对：{Path.GetFileName(newLabel ?? newPath)}";
         }
         catch (Exception ex)
         {

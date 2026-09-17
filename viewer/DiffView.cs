@@ -118,10 +118,10 @@ internal sealed class DiffView
 
         foreach (var d in report.Sheets.Where(s => s.HasChanges))
         {
-            if (d.Changes.Count > 0)
+            if (d.HasChanges)
             {
-                var sheet = DiffService.BuildChangeSheet(d.SheetName, d.Changes, _pool, Controls.ExcelGrid.ColumnName);
-                sheet.Title = $"{d.SheetName} · {d.Changes.Count} 处";
+                var sheet = DiffService.BuildChangeSheet(d, _pool, Controls.ExcelGrid.ColumnName);
+                sheet.Title = $"{d.SheetName} · {d.ShortSummary}";
                 _changeSheets.Add(sheet);
             }
 
