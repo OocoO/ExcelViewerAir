@@ -10,6 +10,10 @@
     <AssemblyName>ExcelViewer</AssemblyName>
     <RootNamespace>ExcelViewer</RootNamespace>
 
+    <!-- 应用图标：exe / 任务栏 / 窗口标题栏都用它。
+         源图与生成脚本见 assets\icon\ 与 tools\make_app_icon.ps1。 -->
+    <ApplicationIcon>app.ico</ApplicationIcon>
+
     <!-- 只读查看器：不往用户目录写任何配置 -->
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <InvariantGlobalization>false</InvariantGlobalization>
@@ -40,6 +44,12 @@
 
   <ItemGroup>
     <PackageReference Include="ExcelDataReader" Version="3.6.0" />
+  </ItemGroup>
+
+  <!-- 除了嵌进 exe 的资源（ApplicationIcon），窗口标题栏还要在运行时读它，
+       所以再作为 WPF 资源打进程序集，MainWindow.xaml 的 Icon="app.ico" 才找得到。 -->
+  <ItemGroup>
+    <Resource Include="app.ico" />
   </ItemGroup>
 
   <!-- 用脚本挑出 packs 目录下版本号最大的 apphost 版本 -->

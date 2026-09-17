@@ -8,3 +8,6 @@ viewer/publish/
 *.txt
 !test/*.txt
 test
+
+# 图标源图要进版本库（上面那条 *.png 会误伤）
+!assets/icon/*.png

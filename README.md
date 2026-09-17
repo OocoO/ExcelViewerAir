@@ -150,6 +150,7 @@ excel2csv/
 ├─ NuGet.config                     离线还原配置（本机无法访问 nuget.org）
 ├─ viewer/                          查看器源码（C# / WPF）
 │  ├─ publish/ExcelViewer.exe       ← 直接运行这个
+│  ├─ app.ico                       应用图标（exe / 任务栏 / 标题栏）
 │  ├─ Model/                        数据模型：字符串池、列式 Sheet、加载器、表头识别、改动比对
 │  ├─ Controls/                     自绘虚拟化表格、布局模型、文本绘制、配色
 │  ├─ Search/                       全表搜索
@@ -161,7 +162,31 @@ excel2csv/
    ├─ launch.ps1                    启动器逻辑（中文提示放这里）
    ├─ install-open-with.ps1          写注册表 + 打开默认应用设置页
    ├─ Shot.csproj / Program.cs       窗口截图 / 图片放大（独立小程序）
+   ├─ make_app_icon.ps1              AI 原图 → 去背景 / 留安全区 / 打多尺寸 .ico
    └─ make_diff_fixture.py           造一份「改过几处」的测试数据
+```
+
+## 应用图标
+
+图标是「蓝底圆角方块 + 用表格格子拼出来的字母 E，中横条是高亮格」，
+AI 原图（千问 `qwen-image-2.0`）放在 `assets\icon\app-icon.png`，
+同目录 `app-icon-256.png` 是 256px 预览，几个没用上的候选留在 `assets\icon-candidates\`。
+
+换图标或重新生成后，一条命令重打 `viewer\app.ico`：
+
+```powershell
+pwsh -File tools\make_app_icon.ps1 -Source assets\icon\app-icon.png `
+     -Ico viewer\app.ico -Png assets\icon\app-icon-256.png
+```
+
+脚本做三件事：把原图四周的纯色背景抠成透明（带一段渐变的 anti-alias 边）、
+按 Windows 图标习惯让内容只占画布 80%（否则 16px 下比旁边的系统图标大一圈）、
+输出 256/128/64/48/32/24/16 七个尺寸（每档内嵌 PNG，Vista 以后都认）。
+
+生成物要重新编译才生效：
+
+```powershell
+dotnet publish viewer\ExcelViewer.csproj -c Release -o viewer\publish
 ```
 
 > **`.cmd` 文件一律保持纯 ASCII**（见下方「已修的坑」）。所以上面几个 `.cmd` 都很短，
@@ -271,5 +296,12 @@ python tools\make_diff_fixture.py test\Item.xlsx $env:TEMP\edited\Item_edited.xl
   它拖的是那个内层 Grid 自己的行（`Auto` / `*`），而预览条的高度其实由**外层**行定义决定，
   所以拖动完全没反应。正确做法：外层 Grid 开三行（表格 `*` / 分隔线 `Auto` / 预览 `Height`），
   `GridSplitter` 单独占中间那行，并显式写 `ResizeBehavior="PreviousAndNext"`、`ResizeDirection="Rows"`。
+* **图标文件要同时声明两次才到处都对**：`<ApplicationIcon>app.ico</ApplicationIcon>` 只负责
+  把图标嵌进 exe（资源管理器 / 任务栏用的就是它）；窗口标题栏走的是 WPF 资源查找，
+  还得再 `<Resource Include="app.ico" />` 一份，否则 `MainWindow.xaml` 里的 `Icon="app.ico"`
+  直接以 `IOException: 找不到资源"app.ico"` 挂掉——**窗口连构造函数都走不完**，
+  现象是运行就崩、`--probe` 也崩。注意加上 `<Resource>` 之后必须**清一次 `obj\Release`**，
+  增量构建不会把新资源合进 `.g.resources`（`Assembly.GetManifestResourceStream("ExcelViewer.g.resources")`
+  里能列到 `app.ico` 才算真打进去了）。
 * **`--textprobe` 的画布高度要留够**：两组样本（TF/FT 各 4 行 × 24px）加分隔线后超过 200px，
   `Scan` 会越界读像素数组直接抛 `IndexOutOfRangeException`；现在画布 260px，并且 `Scan` 自己会夹住 y 范围。
