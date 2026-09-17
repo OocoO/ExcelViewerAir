@@ -1,0 +1,79 @@
+Windows Registry Editor Version 5.00
+
+; ============================================================================
+; 注册「Excel 只读查看器」为 .xlsx / .xlsm / .xlsb / .csv 的打开方式
+;
+; 做两件事：
+;   1) 注册 ProgId ExcelViewer.Sheet，这样「打开方式」列表里能看到它；
+;   2) 在 .xlsx 等的右键菜单里加：「用查看器打开（只读）」、「用副本编辑」。
+;
+; 双击默认打开方式：Windows 10/11 的 UserChoice 由系统哈希保护，
+; 任何程序都无法静默改成默认（这是系统防止篡改的机制）。
+; 所以导入本文件后，请按下面任一方式把双击设成查看器：
+;   a) 右键任一 .xlsx → 打开方式 → 选择其他应用 → 选「Excel 只读查看器」→ 勾选"始终"
+;   b) 双击本目录下的「设为默认打开方式.cmd」，会直接跳到系统的默认应用设置页
+;
+; 全部写在 HKCU 下，不需要管理员权限，卸载直接删掉对应键即可。
+; 如果安装位置变了，把下面的 BASE 路径替换掉即可（共 5 处）。
+; ============================================================================
+
+; ---- 1) ProgId：双击/打开方式用的程序定义 ----
+[HKEY_CURRENT_USER\Software\Classes\ExcelViewer.Sheet]
+@="Excel 只读查看器"
+"FriendlyTypeName"="Excel 只读查看器"
+
+[HKEY_CURRENT_USER\Software\Classes\ExcelViewer.Sheet\DefaultIcon]
+@="C:\\Users\\18223\\Programs\\excel2csv\\viewer\\publish\\ExcelViewer.exe,0"
+
+[HKEY_CURRENT_USER\Software\Classes\ExcelViewer.Sheet\shell]
+
+[HKEY_CURRENT_USER\Software\Classes\ExcelViewer.Sheet\shell\open]
+@="只读查看(&V)"
+"Icon"="C:\\Users\\18223\\Programs\\excel2csv\\viewer\\publish\\ExcelViewer.exe,0"
+
+[HKEY_CURRENT_USER\Software\Classes\ExcelViewer.Sheet\shell\open\command]
+@="\"C:\\Users\\18223\\Programs\\excel2csv\\viewer\\publish\\ExcelViewer.exe\" \"%1\""
+
+; 右键里的第二项：用副本编辑（复制到工作区，不锁原文件）
+[HKEY_CURRENT_USER\Software\Classes\ExcelViewer.Sheet\shell\editcopy]
+@="用副本编辑（不锁原文件）(&E)"
+"Icon"="C:\\Users\\18223\\Programs\\excel2csv\\viewer\\publish\\ExcelViewer.exe,0"
+
+[HKEY_CURRENT_USER\Software\Classes\ExcelViewer.Sheet\shell\editcopy\command]
+@="wscript.exe \"C:\\Users\\18223\\Programs\\excel2csv\\ExcelViewerEdit.vbs\" \"%1\""
+
+; ---- 2) 让「打开方式」列表里出现查看器（不改默认） ----
+[HKEY_CURRENT_USER\Software\Classes\.xlsx\OpenWithProgids]
+"ExcelViewer.Sheet"=""
+
+[HKEY_CURRENT_USER\Software\Classes\.xlsm\OpenWithProgids]
+"ExcelViewer.Sheet"=""
+
+[HKEY_CURRENT_USER\Software\Classes\.xlsb\OpenWithProgids]
+"ExcelViewer.Sheet"=""
+
+[HKEY_CURRENT_USER\Software\Classes\.csv\OpenWithProgids]
+"ExcelViewer.Sheet"=""
+
+; ---- 3) 右键菜单项（保留你原有的「转 CSV 查看」，互不影响） ----
+[HKEY_CURRENT_USER\Software\Classes\.xlsx\shell\excelviewer]
+@="用查看器打开（只读）"
+"Icon"="C:\\Users\\18223\\Programs\\excel2csv\\viewer\\publish\\ExcelViewer.exe,0"
+
+[HKEY_CURRENT_USER\Software\Classes\.xlsx\shell\excelviewer\command]
+@="\"C:\\Users\\18223\\Programs\\excel2csv\\viewer\\publish\\ExcelViewer.exe\" \"%1\""
+
+[HKEY_CURRENT_USER\Software\Classes\.xlsx\shell\excelvieweredit]
+@="用副本编辑（不锁原文件）"
+"Icon"="C:\\Users\\18223\\Programs\\excel2csv\\viewer\\publish\\ExcelViewer.exe,0"
+
+[HKEY_CURRENT_USER\Software\Classes\.xlsx\shell\excelvieweredit\command]
+@="wscript.exe \"C:\\Users\\18223\\Programs\\excel2csv\\ExcelViewerEdit.vbs\" \"%1\""
+
+; ============================================================================
+; 卸载：删掉下面这些键即可
+;   HKCU\Software\Classes\ExcelViewer.Sheet
+;   HKCU\Software\Classes\.xlsx\shell\excelviewer
+;   HKCU\Software\Classes\.xlsx\shell\excelvieweredit
+;   以及各 .xlsx/.xlsm/.xlsb/.csv\OpenWithProgids 下的 ExcelViewer.Sheet 值
+; ============================================================================

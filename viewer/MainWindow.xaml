@@ -1,0 +1,446 @@
+<Window x:Class="ExcelViewer.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:controls="clr-namespace:ExcelViewer.Controls"
+        Title="Excel 查看器"
+        Width="1280"
+        Height="820"
+        MinWidth="620"
+        MinHeight="360"
+        Background="#FFF3F3F3"
+        FontFamily="Microsoft YaHei UI, Segoe UI"
+        AllowDrop="True"
+        Drop="OnWindowDrop"
+        DragOver="OnWindowDragOver"
+        Closing="OnWindowClosing">
+
+    <DockPanel>
+
+        <!-- ============ 顶部：菜单 + 工具条（尽量压扁，把空间留给表格） ============ -->
+        <Border DockPanel.Dock="Top"
+                Background="{StaticResource ChromeBrush}"
+                BorderBrush="{StaticResource ChromeBorderBrush}"
+                BorderThickness="0,0,0,1">
+            <StackPanel>
+
+                <Menu DockPanel.Dock="Top" Padding="4,1" Background="Transparent">
+                    <MenuItem Header="文件(_F)" Style="{StaticResource TopMenuItem}">
+                        <MenuItem Header="打开(_O)..." InputGestureText="Ctrl+O" Click="OnOpenClick" />
+                        <MenuItem Header="重新加载(_R)" InputGestureText="F5" Click="OnReloadClick" />
+                        <Separator />
+                        <MenuItem Header="复制当前单元格(_C)" InputGestureText="Ctrl+C" Click="OnCopyCellClick" />
+                        <Separator />
+                        <MenuItem Header="用副本编辑（不锁原文件）(_E)" Click="OnEditCopyClick" />
+                        <MenuItem Header="与原文件比对改动(_D)..." Click="OnDiffWithClick" />
+                        <Separator />
+                        <MenuItem Header="退出(_X)" InputGestureText="Alt+F4" Click="OnExitClick" />
+                    </MenuItem>
+                    <MenuItem Header="查看(_V)" Style="{StaticResource TopMenuItem}">
+                        <MenuItem x:Name="MenuRowNumbers"
+                                  Header="显示行号栏(_L)"
+                                  IsCheckable="True"
+                                  IsChecked="True"
+                                  Click="OnToggleRowNumbers" />
+                        <MenuItem x:Name="MenuShowHeaderRow"
+                                  Header="冻结首行表头(_H)"
+                                  IsCheckable="True"
+                                  IsChecked="True"
+                                  Click="OnToggleHeaderRow" />
+                        <Separator />
+                        <MenuItem Header="放大字号(_+)" InputGestureText="Ctrl+=" Click="OnZoomIn" />
+                        <MenuItem Header="缩小字号(_-)" InputGestureText="Ctrl+-" Click="OnZoomOut" />
+                        <MenuItem Header="字号重置" Click="OnZoomReset" />
+                        <Separator />
+                        <MenuItem Header="列宽自适应(_W)" Click="OnAutoFitColumns" />
+                        <Separator />
+                        <MenuItem x:Name="MenuPreviewPane"
+                                  Header="内容预览条(_P)"
+                                  InputGestureText="Ctrl+P"
+                                  IsCheckable="True"
+                                  IsChecked="True"
+                                  Click="OnTogglePreviewPane" />
+                    </MenuItem>
+                    <MenuItem Header="帮助(_H)" Style="{StaticResource TopMenuItem}">
+                        <MenuItem Header="快捷键说明(_K)" Click="OnShowShortcuts" />
+                        <MenuItem Header="关于(_A)" Click="OnShowAbout" />
+                    </MenuItem>
+                </Menu>
+
+                <!-- 搜索行 -->
+                <Grid Margin="6,4,6,4">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+
+                    <TextBlock Grid.Column="0"
+                               Text="查找"
+                               Margin="0,0,6,0"
+                               VerticalAlignment="Center"
+                               FontSize="{StaticResource UiFontSize}"
+                               Foreground="#FF444444" />
+
+                    <Border Grid.Column="1"
+                            Width="300"
+                            Background="White"
+                            BorderBrush="#FFC6C6C6"
+                            BorderThickness="1"
+                            CornerRadius="3">
+                        <Grid>
+                            <TextBox x:Name="SearchBox"
+                                     Style="{StaticResource SearchBox}"
+                                     BorderThickness="0"
+                                     TextChanged="OnSearchTextChanged"
+                                     PreviewKeyDown="OnSearchKeyDown" />
+                            <TextBlock x:Name="SearchPlaceholder"
+                                       Text="输入关键字，全表搜索（回车下一条）"
+                                       Margin="8,0,0,0"
+                                       VerticalAlignment="Center"
+                                       FontSize="12"
+                                       Foreground="{StaticResource SubtleBrush}"
+                                       IsHitTestVisible="False" />
+                        </Grid>
+                    </Border>
+
+                    <Button Grid.Column="2"
+                            x:Name="BtnPrev"
+                            Style="{StaticResource ToolButton}"
+                            Content="▲ 上一条"
+                            Margin="6,0,2,0"
+                            Click="OnPrevMatch"
+                            ToolTip="上一个命中（Shift+F3）" />
+                    <Button Grid.Column="3"
+                            x:Name="BtnNext"
+                            Style="{StaticResource ToolButton}"
+                            Content="▼ 下一条"
+                            Click="OnNextMatch"
+                            ToolTip="下一个命中（F3）" />
+                    <Button Grid.Column="4"
+                            x:Name="BtnClearSearch"
+                            Style="{StaticResource ToolButton}"
+                            Content="清除"
+                            Click="OnClearSearch"
+                            ToolTip="清除搜索（Esc）" />
+
+                    <TextBlock Grid.Column="6"
+                               x:Name="SearchSummary"
+                               VerticalAlignment="Center"
+                               FontSize="12"
+                               Foreground="{StaticResource MutedBrush}" />
+                </Grid>
+
+                <!-- 工具行 -->
+                <Grid Margin="6,0,6,4">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+
+                    <Button Grid.Column="0"
+                            Style="{StaticResource ToolButton}"
+                            Content="打开文件…"
+                            Click="OnOpenClick"
+                            ToolTip="Ctrl+O" />
+                    <Button Grid.Column="1"
+                            Style="{StaticResource ToolButton}"
+                            Content="重新加载"
+                            Click="OnReloadClick"
+                            ToolTip="F5：文件被重新导出后刷新" />
+                    <Button Grid.Column="2"
+                            Style="{StaticResource ToolButton}"
+                            Content="用副本编辑"
+                            Click="OnEditCopyClick"
+                            ToolTip="复制一份到工作区用 Excel 打开，原文件不会被锁；关闭 Excel 后自动比对改动" />
+
+                    <StackPanel Grid.Column="3"
+                                Orientation="Horizontal"
+                                HorizontalAlignment="Right"
+                                VerticalAlignment="Center">
+                        <TextBlock x:Name="FileInfoText"
+                                   Style="{StaticResource StatusText}"
+                                   Margin="0,0,10,0" />
+                        <TextBlock x:Name="LoadTimeText"
+                                   Style="{StaticResource StatusText}"
+                                   Margin="0,0,0,0" />
+                    </StackPanel>
+                </Grid>
+
+            </StackPanel>
+        </Border>
+
+        <!-- ============ 底部：工作表标签 ============ -->
+        <Border x:Name="SheetTabBar"
+                DockPanel.Dock="Bottom"
+                Background="#FFEDEDED"
+                BorderBrush="{StaticResource ChromeBorderBrush}"
+                BorderThickness="0,1,0,0"
+                Visibility="Collapsed">
+            <ScrollViewer HorizontalScrollBarVisibility="Auto"
+                          VerticalScrollBarVisibility="Disabled"
+                          Padding="6,0">
+                <StackPanel x:Name="SheetTabs" Orientation="Horizontal" />
+            </ScrollViewer>
+        </Border>
+
+        <!-- ============ 状态栏 ============ -->
+        <Border DockPanel.Dock="Bottom"
+                Background="{StaticResource ChromeBrush}"
+                BorderBrush="{StaticResource ChromeBorderBrush}"
+                BorderThickness="0,1,0,0">
+            <Grid Margin="8,3">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+
+                <TextBlock Grid.Column="0" x:Name="StatusCell" Style="{StaticResource StatusStrong}" Text="—" MinWidth="70" />
+                <TextBlock Grid.Column="1" x:Name="StatusSize" Style="{StaticResource StatusText}" Text="" />
+                <TextBlock Grid.Column="2" x:Name="StatusRow" Style="{StaticResource StatusText}" Text="" />
+                <TextBlock Grid.Column="3" x:Name="StatusFilter" Style="{StaticResource StatusText}" Text="" />
+                <TextBlock Grid.Column="5" x:Name="StatusHint" Style="{StaticResource StatusText}" Margin="0" Text="只读" />
+            </Grid>
+        </Border>
+
+        <!-- ============ 横幅 + 表格 + 遮罩 ============ -->
+        <DockPanel>
+            <!-- 改动比对横幅（diff 模式才显示） -->
+            <Border x:Name="DiffBanner"
+                    DockPanel.Dock="Top"
+                    Background="#FFFFF6E0"
+                    BorderBrush="#FFE8C88A"
+                    BorderThickness="0,0,0,1"
+                    Padding="10,7"
+                    Visibility="Collapsed">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+
+                    <StackPanel Grid.Column="0">
+                        <TextBlock x:Name="DiffBannerText"
+                                   FontSize="13"
+                                   FontWeight="SemiBold"
+                                   Foreground="#FFB45A00"
+                                   Text="发现改动" />
+                        <TextBlock x:Name="DiffDetailText"
+                                   FontSize="11.5"
+                                   Margin="0,3,0,0"
+                                   Foreground="{StaticResource MutedBrush}"
+                                   TextWrapping="Wrap" />
+                    </StackPanel>
+
+                    <StackPanel Grid.Column="1"
+                                Orientation="Horizontal"
+                                VerticalAlignment="Center"
+                                Margin="12,0,0,0">
+                        <Button x:Name="BtnDiffWriteBack"
+                                Style="{StaticResource ToolButton}"
+                                Content="写回原文件…"
+                                Margin="0,0,6,0"
+                                Click="OnDiffWriteBack"
+                                ToolTip="把新文件内容覆盖到原文件（会再确认一次）" />
+                        <Button x:Name="BtnDiffSaveAs"
+                                Style="{StaticResource ToolButton}"
+                                Content="另存为…"
+                                Margin="0,0,6,0"
+                                Click="OnDiffSaveAs"
+                                ToolTip="不动原文件，把新文件另存到别处" />
+                        <Button x:Name="BtnDiffClose"
+                                Style="{StaticResource ToolButton}"
+                                Content="关闭对比"
+                                Click="OnDiffClose" />
+                    </StackPanel>
+                </Grid>
+            </Border>
+
+            <Grid>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="*" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition x:Name="PreviewRow" Height="190" />
+                </Grid.RowDefinitions>
+
+                <Grid x:Name="GridHost" Grid.Row="0">
+                    <controls:ExcelGrid x:Name="Grid" />
+                </Grid>
+
+                <!-- 拖这条分隔线可以调整预览条高度（它自己占一行，拖的是上面的表格行和下面的预览行） -->
+                <GridSplitter x:Name="PreviewSplitter"
+                              Grid.Row="1"
+                              Height="5"
+                              HorizontalAlignment="Stretch"
+                              VerticalAlignment="Center"
+                              Background="{StaticResource SplitterBrush}"
+                              ResizeBehavior="PreviousAndNext"
+                              ResizeDirection="Rows"
+                              ShowsPreview="False"
+                              ToolTip="拖动调整预览高度" />
+
+                <!-- ============ 底部：内容预览条（默认展开，选中格子就显示完整内容） ============ -->
+                <Grid x:Name="PreviewPane" Grid.Row="2">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="*" />
+                    </Grid.RowDefinitions>
+
+                    <DockPanel Grid.RowSpan="2" Background="{StaticResource ChromeBrush}">
+                        <Border x:Name="PreviewHeader"
+                                DockPanel.Dock="Top"
+                                Background="#FFEDEDED"
+                                BorderBrush="{StaticResource ChromeBorderBrush}"
+                                BorderThickness="0,1,0,1"
+                                Padding="8,2">
+                            <DockPanel>
+                                <TextBlock x:Name="PreviewAddress"
+                                           DockPanel.Dock="Left"
+                                           FontSize="12"
+                                           FontWeight="SemiBold"
+                                           Foreground="#FF333333"
+                                           VerticalAlignment="Center"
+                                           Text="A1" />
+                                <TextBlock x:Name="PreviewMeta"
+                                           DockPanel.Dock="Left"
+                                           FontSize="12"
+                                           Margin="10,0,0,0"
+                                           Foreground="{StaticResource MutedBrush}"
+                                           VerticalAlignment="Center"
+                                           Text="" />
+                                <Button x:Name="BtnPreviewClose"
+                                        DockPanel.Dock="Right"
+                                        Style="{StaticResource ToolButton}"
+                                        Content="收起"
+                                        Padding="6,1"
+                                        Click="OnPreviewClose"
+                                        ToolTip="收起预览条（Ctrl+P 再开）" />
+                                <Button x:Name="BtnPreviewCopy"
+                                        DockPanel.Dock="Right"
+                                        Style="{StaticResource ToolButton}"
+                                        Content="复制"
+                                        Padding="6,1"
+                                        Margin="0,0,4,0"
+                                        Click="OnPreviewCopy"
+                                        ToolTip="复制这个格子的完整内容" />
+                                <TextBlock x:Name="PreviewWarn"
+                                           DockPanel.Dock="Right"
+                                           FontSize="11.5"
+                                           Margin="0,0,10,0"
+                                           Foreground="#FFB45A00"
+                                           VerticalAlignment="Center"
+                                           Visibility="Collapsed"
+                                           Text="" />
+                            </DockPanel>
+                        </Border>
+
+                        <TextBox x:Name="PreviewTextBox"
+                                 Style="{StaticResource PreviewBox}"
+                                 IsReadOnly="True"
+                                 AcceptsReturn="False"
+                                 AcceptsTab="False"
+                                 TextWrapping="Wrap"
+                                 VerticalScrollBarVisibility="Auto"
+                                 HorizontalScrollBarVisibility="Disabled"
+                                 Text="" />
+                    </DockPanel>
+
+                    <!-- 收起状态：只剩这一行（不会出现被切掉一半的按钮），点一下就能再展开 -->
+                    <Border x:Name="PreviewCollapsedBar"
+                            Grid.RowSpan="2"
+                            Background="#FFEDEDED"
+                            BorderBrush="{StaticResource ChromeBorderBrush}"
+                            BorderThickness="0,1,0,1"
+                            Visibility="Collapsed"
+                            Cursor="Hand"
+                            MouseLeftButtonUp="OnPreviewCollapsedClick"
+                            ToolTip="展开内容预览条（Ctrl+P）">
+                        <DockPanel Margin="8,0">
+                            <TextBlock x:Name="PreviewCollapsedAddress"
+                                       DockPanel.Dock="Left"
+                                       FontSize="12"
+                                       FontWeight="SemiBold"
+                                       Foreground="#FF333333"
+                                       VerticalAlignment="Center"
+                                       Text="—" />
+                            <Button x:Name="BtnPreviewExpand"
+                                    DockPanel.Dock="Right"
+                                    Style="{StaticResource ToolButton}"
+                                    Content="展开 ▴"
+                                    Padding="6,1"
+                                    Click="OnPreviewExpand"
+                                    ToolTip="展开内容预览条（Ctrl+P）" />
+                            <TextBlock x:Name="PreviewCollapsedText"
+                                       FontSize="12"
+                                       Margin="10,0,10,0"
+                                       Foreground="{StaticResource MutedBrush}"
+                                       VerticalAlignment="Center"
+                                       TextTrimming="CharacterEllipsis"
+                                       Text="内容预览条已收起 — 点这里或按 Ctrl+P 展开看全文" />
+                        </DockPanel>
+                    </Border>
+                </Grid>
+
+                <Border x:Name="DropHint"
+                        Grid.Row="0"
+                        Background="#CCFFFFFF"
+                        Visibility="Collapsed"
+                        IsHitTestVisible="False">
+                    <Border BorderBrush="{StaticResource AccentBrush}"
+                            BorderThickness="3"
+                            CornerRadius="8"
+                            Margin="40">
+                        <TextBlock Text="松开即可打开"
+                                   FontSize="24"
+                                   Foreground="{StaticResource AccentBrush}"
+                                   HorizontalAlignment="Center"
+                                   VerticalAlignment="Center" />
+                    </Border>
+                </Border>
+
+                <Border x:Name="BusyOverlay"
+                        Grid.RowSpan="3"
+                        Background="#99FFFFFF"
+                        Visibility="Collapsed"
+                        IsHitTestVisible="True">
+                    <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center">
+                        <TextBlock x:Name="BusyText"
+                                   Text="正在打开…"
+                                   FontSize="15"
+                                   Foreground="#FF444444"
+                                   HorizontalAlignment="Center"
+                                   TextWrapping="Wrap"
+                                   MaxWidth="560" />
+                        <TextBlock x:Name="BusySubText"
+                                   Text=""
+                                   FontSize="12"
+                                   Margin="0,6,0,0"
+                                   Foreground="{StaticResource MutedBrush}"
+                                   HorizontalAlignment="Center"
+                                   TextWrapping="Wrap"
+                                   MaxWidth="560" />
+                        <Button x:Name="BusyCloseButton"
+                                Content="知道了"
+                                Style="{StaticResource ToolButton}"
+                                Margin="0,14,0,0"
+                                Padding="16,5"
+                                HorizontalAlignment="Center"
+                                Visibility="Collapsed"
+                                Click="OnBusyClose" />
+                    </StackPanel>
+                </Border>
+            </Grid>
+        </DockPanel>
+
+    </DockPanel>
+</Window>

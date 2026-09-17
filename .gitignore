@@ -1,0 +1,10 @@
+# 构建产物
+bin/
+obj/
+viewer/publish/
+
+# 临时诊断输出
+*.png
+*.txt
+!test/*.txt
+test

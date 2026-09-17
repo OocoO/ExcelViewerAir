@@ -1,0 +1,58 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+    <AssemblyName>ExcelViewer</AssemblyName>
+    <RootNamespace>ExcelViewer</RootNamespace>
+
+    <!-- 只读查看器：不往用户目录写任何配置 -->
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <InvariantGlobalization>false</InvariantGlobalization>
+    <EnableWindowsTargeting>true</EnableWindowsTargeting>
+
+    <!-- 发布成依赖系统运行时的独立 exe（本机已装 .NET 10 桌面运行时）。
+         不用自包含单文件的原因：离线 NuGet 缓存里没有匹配版本的
+         Microsoft.NETCore.App.Runtime / .Host 包，自包含还原会失败。 -->
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <SelfContained>false</SelfContained>
+    <UseAppHost>true</UseAppHost>
+
+    <!-- 性能：WPF 桌面应用用工作站 GC 更省内存 -->
+    <ServerGarbageCollection>false</ServerGarbageCollection>
+    <ConcurrentGarbageCollection>true</ConcurrentGarbageCollection>
+    <TieredPGO>true</TieredPGO>
+  </PropertyGroup>
+
+  <!--
+    apphost 在 NuGet 里是 Microsoft.NETCore.App.Host.win-x64 包，本机缓存只有 8.x。
+    但 SDK 的 packs 目录自带完整 apphost（含 apphost.exe），可直接指过去，避免联网还原。
+    找不到时保持默认行为（那种情况下 restore 需要网络）。
+  -->
+  <PropertyGroup>
+    <_AppHostRoot Condition="Exists('C:\Program Files\dotnet\packs\Microsoft.NETCore.App.Host.win-x64')">C:\Program Files\dotnet\packs\Microsoft.NETCore.App.Host.win-x64</_AppHostRoot>
+    <_AppHostRoot Condition="'$(_AppHostRoot)' == '' and Exists('C:\Program Files (x86)\dotnet\packs\Microsoft.NETCore.App.Host.win-x64')">C:\Program Files (x86)\dotnet\packs\Microsoft.NETCore.App.Host.win-x64</_AppHostRoot>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="ExcelDataReader" Version="3.6.0" />
+  </ItemGroup>
+
+  <!-- 用脚本挑出 packs 目录下版本号最大的 apphost 版本 -->
+  <Target Name="ResolveLocalAppHostPack" BeforeTargets="ProcessFrameworkReferences" Condition="'$(_AppHostRoot)' != ''">
+    <Exec Command="powershell -NoProfile -ExecutionPolicy Bypass -Command &quot;(Get-ChildItem -LiteralPath '$(_AppHostRoot)' -Directory | Sort-Object { [version]($_.Name) } -Descending | Select-Object -First 1).FullName | Set-Content -LiteralPath '$(IntermediateOutputPath)apphostpack.txt' -Encoding ASCII&quot;"
+          ContinueOnError="true" />
+    <ReadLinesFromFile File="$(IntermediateOutputPath)apphostpack.txt" Condition="Exists('$(IntermediateOutputPath)apphostpack.txt')">
+      <Output TaskParameter="Lines" ItemName="_AppHostPackDir" />
+    </ReadLinesFromFile>
+    <PropertyGroup>
+      <AppHostPackPath>@(_AppHostPackDir)</AppHostPackPath>
+    </PropertyGroup>
+    <Message Importance="normal" Text="使用本地 apphost: $(AppHostPackPath)" Condition="'$(AppHostPackPath)' != ''" />
+  </Target>
+
+</Project>
