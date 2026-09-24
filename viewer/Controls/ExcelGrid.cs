@@ -163,7 +163,7 @@ public sealed class ExcelGrid : FrameworkElement
 
     private int _headerRowIndex = -1;
 
-    /// <summary>是否冻结首行（把第一行当表头显示，居中加粗）。</summary>
+    /// <summary>是否冻结表头（把 Excel 里冻住的那几行/几列钉住不动）。</summary>
     public bool HideHeaderRow
     {
         get => _hideHeaderRow;
@@ -175,19 +175,103 @@ public sealed class ExcelGrid : FrameworkElement
             }
 
             _hideHeaderRow = value;
+            ApplyFreeze();
+            UpdateScrollBars();
             InvalidateVisual();
+            RaiseViewportChanged();
         }
     }
 
     private bool _hideHeaderRow;
 
-    public int VisibleRowCount => Math.Max(1, (int)((ActualHeight - _model.HeaderHeight - _hBar.Height) / _model.RowHeight));
+    /// <summary>冻结在顶部的行数（0 = 没冻）。</summary>
+    public int FrozenRowCount => _model.FreezeRows;
+
+    /// <summary>冻结在左侧的列数（0 = 没冻）。</summary>
+    public int FrozenColCount => _model.FreezeCols;
+
+    public int VisibleRowCount => Math.Max(1, (int)((ActualHeight - ContentTop - _hBar.Height) / _model.RowHeight));
 
     /// <summary>诊断用：当前排版缓存条目数。</summary>
     public int TextLayoutCacheCount => _text?.LayoutCacheCount ?? 0;
 
-    /// <summary>当前视口顶部对应的行号（0 为表头行）。</summary>
-    public int TopVisibleRow => Math.Max(0, (int)(_vOffset / _model.RowHeight));
+    /// <summary>当前视口顶部对应的可滚动行号（前几行冻结时不参与滚动）。</summary>
+    public int TopVisibleRow => _model.FreezeRows + Math.Max(0, (int)(_vOffset / _model.RowHeight));
+
+    // ---------------- 冻结窗格几何 ----------------
+
+    /// <summary>可滚动内容的上边界：列标之下、冻结行之下。</summary>
+    private double ContentTop => _model.HeaderHeight + _model.FrozenRowsHeight;
+
+    /// <summary>可滚动内容的左边界：行号栏 + 冻结列之后。</summary>
+    private double ContentLeft => _model.GutterWidth + _model.FrozenColsWidth;
+
+    private double ContentBottom => Math.Max(ContentTop, ActualHeight - _hBar.Height);
+
+    private double ContentRight => Math.Max(ContentLeft, ActualWidth - _vBar.Width);
+
+    /// <summary>某个数据行的上边界；冻结行不受滚动影响，其余行减去滚动偏移。</summary>
+    private double RowTop(int row) => row < _model.FreezeRows
+        ? _model.HeaderHeight + (row * _model.RowHeight)
+        : ContentTop + ((row - _model.FreezeRows) * _model.RowHeight) - _vOffset;
+
+    /// <summary>某个数据列的左边界；冻结列不受横向滚动影响。</summary>
+    private double ColLeft(int col) => col < _model.FreezeCols
+        ? _model.ColumnLeft(col)
+        : _model.ColumnLeft(col) - _hOffset;
+
+    /// <summary>屏幕 y → 行号（列标条带返回 -1）。</summary>
+    private int RowAtY(double y)
+    {
+        var rowH = _model.RowHeight;
+        var freeze = _model.FreezeRows;
+        var frozenBottom = _model.HeaderHeight + _model.FrozenRowsHeight;
+        if (y < _model.HeaderHeight)
+        {
+            return -1;
+        }
+
+        if (y < frozenBottom)
+        {
+            return Math.Min(freeze - 1, (int)((y - _model.HeaderHeight) / rowH));
+        }
+
+        var row = freeze + (int)((y - frozenBottom + _vOffset) / rowH);
+        return row < _model.RowCount ? row : -1;
+    }
+
+    /// <summary>屏幕 x → 列号（行号栏 / 越界返回 -1）。</summary>
+    private int ColAtX(double x)
+    {
+        if (x < _model.GutterWidth)
+        {
+            return -1;
+        }
+
+        var freeze = _model.FreezeCols;
+        if (freeze > 0 && x < _model.ColumnLeft(freeze))
+        {
+            for (var c = 0; c < freeze; c++)
+            {
+                if (x < _model.ColumnRight(c))
+                {
+                    return c;
+                }
+            }
+
+            return -1;
+        }
+
+        return _model.ColumnAt(x + _hOffset);
+    }
+
+    private void ApplyFreeze()
+    {
+        var sheet = _model.Sheet;
+        _model.SetFreeze(
+            _hideHeaderRow ? 0 : sheet?.FreezeRows ?? 0,
+            _hideHeaderRow ? 0 : sheet?.FreezeCols ?? 0);
+    }
 
     public event EventHandler? ViewportChanged;
 
@@ -277,11 +361,17 @@ public sealed class ExcelGrid : FrameworkElement
         var contentH = Math.Max(0, ActualHeight - (needH ? hBarH : 0));
         var contentW = Math.Max(0, ActualWidth - (needV ? vBarW : 0));
 
+        // 冻结的行/列不参与滚动：滚动范围只算剩下的那部分
+        var frozenH = _model.FrozenRowsHeight;
+        var frozenW = _model.FrozenColsWidth;
+        var scrollH = _model.ScrollableRowCount * _model.RowHeight;
+        var scrollW = Math.Max(0, totalW - _model.GutterWidth - frozenW);
+
         _suspendScrollSync = true;
-        _vBar.ViewportSize = Math.Max(1, contentH - _model.HeaderHeight);
-        _vBar.Maximum = Math.Max(0, totalH - _model.HeaderHeight - _vBar.ViewportSize);
-        _hBar.ViewportSize = Math.Max(1, contentW - _model.GutterWidth);
-        _hBar.Maximum = Math.Max(0, totalW - _model.GutterWidth - _hBar.ViewportSize);
+        _vBar.ViewportSize = Math.Max(1, contentH - _model.HeaderHeight - frozenH);
+        _vBar.Maximum = Math.Max(0, scrollH - _vBar.ViewportSize);
+        _hBar.ViewportSize = Math.Max(1, contentW - _model.GutterWidth - frozenW);
+        _hBar.Maximum = Math.Max(0, scrollW - _hBar.ViewportSize);
 
         _vOffset = Math.Clamp(_vOffset, 0, _vBar.Maximum);
         _hOffset = Math.Clamp(_hOffset, 0, _hBar.Maximum);
@@ -309,6 +399,7 @@ public sealed class ExcelGrid : FrameworkElement
     {
         _model.HeaderRowIndex = _headerRowIndex;
         _model.SetSheet(sheet);
+        ApplyFreeze();
         if (!keepScroll)
         {
             _vOffset = 0;
@@ -347,40 +438,105 @@ public sealed class ExcelGrid : FrameworkElement
 
         _text ??= CreateTextRendererFallback();
 
-        var contentTop = _model.HeaderHeight;
-        var contentBottom = Math.Max(contentTop, height - (float)_hBar.Height);
-        var contentLeft = _model.GutterWidth;
-        var contentRight = Math.Max(contentLeft, width - (float)_vBar.Width);
+        var contentTop = ContentTop;
+        var contentBottom = ContentBottom;
+        var contentLeft = ContentLeft;
+        var contentRight = ContentRight;
+        var freezeRows = _model.FreezeRows;
 
         var rowH = _model.RowHeight;
-        var firstRow = Math.Max(0, (int)(_vOffset / rowH));
-        var lastRow = Math.Min(sheet.RowCount - 1, (int)((_vOffset + (contentBottom - contentTop)) / rowH) + 1);
 
+        // 可滚动行的范围（冻结行在前面，不参与滚动）
+        var firstRow = freezeRows + Math.Max(0, (int)(_vOffset / rowH));
+        var lastRow = Math.Min(sheet.RowCount - 1, freezeRows + (int)((_vOffset + (contentBottom - contentTop)) / rowH) + 1);
+
+        // 冻结列永远从 0 开始画（它们钉在最左边，不受横向滚动影响）
         var firstCol = 0;
-        for (var c = 0; c < sheet.ColCount; c++)
+        if (_model.FreezeCols == 0)
         {
-            if (_model.ColumnRight(c) > _hOffset + contentLeft)
+            for (var c = 0; c < sheet.ColCount; c++)
             {
-                firstCol = c;
-                break;
+                if (_model.ColumnRight(c) > _hOffset + contentLeft)
+                {
+                    firstCol = c;
+                    break;
+                }
             }
         }
 
         var lastCol = sheet.ColCount - 1;
         for (var c = firstCol; c < sheet.ColCount; c++)
         {
-            if (_model.ColumnLeft(c) > _hOffset + contentRight)
+            if (ColLeft(c) > contentRight)
             {
                 lastCol = Math.Max(firstCol, c - 1);
                 break;
             }
         }
 
-        DrawCells(dc, sheet, firstRow, lastRow, firstCol, lastCol, contentTop, contentBottom, contentLeft, contentRight);
-        DrawColumnHeaders(dc, firstCol, lastCol, contentLeft, contentRight);
-        DrawGutter(dc, firstRow, lastRow, contentTop, contentBottom);
+        // 先画冻结块（表头几行，整行都要画：冻结列和滚动列都在里面），
+        // 再画可滚动区。可滚动区被切成"冻结列 × 可滚动行"和"滚动列 × 可滚动行"两块，
+        // 否则横向滚动时冻结列的格子会跟着滚走（或者干脆画不出来）。
+        if (freezeRows > 0)
+        {
+            var frozenClip = new Rect(
+                _model.GutterWidth,
+                _model.HeaderHeight,
+                Math.Max(0, width - _model.GutterWidth - _vBar.Width),
+                _model.FrozenRowsHeight);
+            DrawCells(dc, sheet, 0, Math.Min(freezeRows, sheet.RowCount) - 1, 0, lastCol, frozenClip);
+        }
+
+        if (sheet.RowCount > freezeRows)
+        {
+            var scrollH = Math.Max(0, contentBottom - contentTop);
+            var frozenColEnd = Math.Min(_model.FreezeCols, sheet.ColCount);
+            if (frozenColEnd > 0)
+            {
+                var frozenColClip = new Rect(_model.GutterWidth, contentTop, _model.FrozenColsWidth, scrollH);
+                DrawCells(dc, sheet, firstRow, lastRow, 0, frozenColEnd - 1, frozenColClip);
+            }
+
+            if (frozenColEnd <= lastCol)
+            {
+                var scrollClip = new Rect(
+                    contentLeft,
+                    contentTop,
+                    Math.Max(0, contentRight - contentLeft),
+                    scrollH);
+                DrawCells(dc, sheet, firstRow, lastRow, Math.Max(frozenColEnd, firstCol), lastCol, scrollClip);
+            }
+        }
+
+        DrawColumnHeaders(dc, firstCol, lastCol);
+        DrawGutter(dc, 0, Math.Min(freezeRows, sheet.RowCount) - 1);
+        if (sheet.RowCount > freezeRows)
+        {
+            DrawGutter(dc, firstRow, lastRow);
+        }
+
+        DrawFreezeLines(dc, freezeRows);
         DrawCorner(dc);
         DrawBadge(dc);
+    }
+
+    /// <summary>冻结边界：画一条稍深的线，让「钉住的部分」和「滚动的部分」一眼分得开。</summary>
+    private void DrawFreezeLines(DrawingContext dc, int freezeRows)
+    {
+        var pen = new Pen(GridTheme.HeaderLine, 1);
+        pen.Freeze();
+
+        if (freezeRows > 0)
+        {
+            var y = Math.Round(_model.HeaderHeight + _model.FrozenRowsHeight) + 0.5;
+            dc.DrawLine(pen, new Point(0, y), new Point(ActualWidth, y));
+        }
+
+        if (_model.FreezeCols > 0)
+        {
+            var x = Math.Round(_model.ColumnLeft(_model.FreezeCols)) + 0.5;
+            dc.DrawLine(pen, new Point(x, 0), new Point(x, ActualHeight));
+        }
     }
 
     private void DrawCells(
@@ -390,31 +546,30 @@ public sealed class ExcelGrid : FrameworkElement
         int lastRow,
         int firstCol,
         int lastCol,
-        double contentTop,
-        double contentBottom,
-        double contentLeft,
-        double contentRight)
+        Rect clip)
     {
         var rowH = _model.RowHeight;
         var selTop = Math.Min(_anchorRow, _activeRow);
         var selBottom = Math.Max(_anchorRow, _activeRow);
         var selLeft = Math.Min(_anchorCol, _activeCol);
         var selRight = Math.Max(_anchorCol, _activeCol);
+        var freezeRows = _model.FreezeRows;
 
-        dc.PushClip(new RectangleGeometry(new Rect(contentLeft, contentTop, Math.Max(0, contentRight - contentLeft), Math.Max(0, contentBottom - contentTop))));
+        dc.PushClip(new RectangleGeometry(clip));
 
         for (var r = firstRow; r <= lastRow; r++)
         {
-            var y = contentTop + (r * rowH) - _vOffset;
-            var isPinnedHeader = r == HeaderRowIndex && !_hideHeaderRow;
+            var y = RowTop(r);
+            var isFrozenRow = r < freezeRows;
             var isDetectedHeader = r == _headerRowIndex;
             var isSearchRow = _search.RowIsHit(r);
             var inSelection = r >= selTop && r <= selBottom;
 
             Brush background;
-            if (isPinnedHeader)
+            if (isFrozenRow)
             {
-                background = GridTheme.HeaderBackground;
+                // 冻结块 = 表头块：整块淡蓝，一眼能看出这几行是钉住的
+                background = isDetectedHeader ? GridTheme.DetectedHeaderBackground : GridTheme.HeaderBackground;
             }
             else if (isDetectedHeader)
             {
@@ -433,9 +588,9 @@ public sealed class ExcelGrid : FrameworkElement
                 background = (r & 1) == 1 ? GridTheme.RowAltBackground : GridTheme.RowBackground;
             }
 
-            dc.DrawRectangle(background, null, new Rect(contentLeft, y, Math.Max(0, contentRight - contentLeft), rowH));
+            dc.DrawRectangle(background, null, new Rect(clip.X, y, clip.Width, rowH));
 
-            if (isSearchRow && !isPinnedHeader && _search.Options is not null)
+            if (isSearchRow && !isFrozenRow && _search.Options is not null)
             {
                 var hits = r == _activeRow
                     ? _activeRowHitCols
@@ -447,7 +602,7 @@ public sealed class ExcelGrid : FrameworkElement
                         continue;
                     }
 
-                    var hx = _model.ColumnLeft(hc) - _hOffset;
+                    var hx = ColLeft(hc);
                     var hw = _model.GetColumnWidth(hc);
                     dc.DrawRectangle(GridTheme.MatchHighlight, null, new Rect(hx + 1, y + 1, Math.Max(1, hw - 1), rowH - 1));
                 }
@@ -461,12 +616,20 @@ public sealed class ExcelGrid : FrameworkElement
                     continue;
                 }
 
-                var x = _model.ColumnLeft(c) - _hOffset;
+                var x = ColLeft(c);
                 var w = _model.GetColumnWidth(c);
 
-                if (isPinnedHeader)
+                if (isFrozenRow)
                 {
-                    _text!.Draw(dc, value, CellTextRenderer.AlignCenter, x + 2, y, w - 4, rowH);
+                    // 表头块：加粗左对齐（字段名行更明显），长文本照旧省略
+                    if (isDetectedHeader)
+                    {
+                        _boldText!.Draw(dc, value, CellTextRenderer.AlignLeft, x + GridModel.CellPaddingX, y, w - (GridModel.CellPaddingX * 2), rowH);
+                    }
+                    else
+                    {
+                        _text!.Draw(dc, value, CellTextRenderer.AlignCenter, x + 2, y, w - 4, rowH);
+                    }
                 }
                 else if (isDetectedHeader)
                 {
@@ -493,32 +656,32 @@ public sealed class ExcelGrid : FrameworkElement
         linePen.Freeze();
         for (var r = firstRow; r <= lastRow + 1; r++)
         {
-            var y = Math.Round(contentTop + (r * rowH) - _vOffset) + 0.5;
-            if (y < contentTop - 1 || y > contentBottom + 1)
+            var y = Math.Round(RowTop(r)) + 0.5;
+            if (y < clip.Y - 1 || y > clip.Bottom + 1)
             {
                 continue;
             }
 
-            dc.DrawLine(linePen, new Point(contentLeft, y), new Point(contentRight, y));
+            dc.DrawLine(linePen, new Point(clip.X, y), new Point(clip.Right, y));
         }
 
         var lastLineCol = Math.Min(lastCol + 1, sheet.ColCount);
         for (var c = firstCol; c <= lastLineCol; c++)
         {
-            var x = Math.Round(_model.ColumnLeft(c) - _hOffset) + 0.5;
-            if (x < contentLeft - 1 || x > contentRight + 1)
+            var x = Math.Round(ColLeft(c)) + 0.5;
+            if (x < clip.X - 1 || x > clip.Right + 1)
             {
                 continue;
             }
 
-            dc.DrawLine(linePen, new Point(x, contentTop), new Point(x, contentBottom));
+            dc.DrawLine(linePen, new Point(x, clip.Y), new Point(x, clip.Bottom));
         }
 
         if (selRight >= selLeft && selBottom >= selTop)
         {
-            var x0 = _model.ColumnLeft(selLeft) - _hOffset;
-            var x1 = _model.ColumnRight(selRight) - _hOffset;
-            var y0 = contentTop + (selTop * rowH) - _vOffset;
+            var x0 = ColLeft(selLeft);
+            var x1 = ColLeft(selRight) + _model.GetColumnWidth(selRight);
+            var y0 = RowTop(selTop);
             var y1 = y0 + ((selBottom - selTop + 1) * rowH);
             var selPen = new Pen(GridTheme.SelectionBorder, 1.4);
             selPen.Freeze();
@@ -526,32 +689,32 @@ public sealed class ExcelGrid : FrameworkElement
         }
 
         // 当前搜索命中行：整行描边，配合状态栏“第 n / m 条”定位
-        if (_search.HasHits && _activeRow != HeaderRowIndex && _search.RowIsHit(_activeRow))
+        if (_search.HasHits && _activeRow >= freezeRows && _search.RowIsHit(_activeRow))
         {
-            var y0 = contentTop + (_activeRow * rowH) - _vOffset;
+            var y0 = RowTop(_activeRow);
             var pen = new Pen(GridTheme.ActiveMatchBorder, 2);
             pen.Freeze();
-            dc.DrawRectangle(null, pen, new Rect(contentLeft + 1, y0 + 1, Math.Max(1, contentRight - contentLeft - 2), rowH - 2));
+            dc.DrawRectangle(null, pen, new Rect(clip.X + 1, y0 + 1, Math.Max(1, clip.Width - 2), rowH - 2));
         }
 
         dc.Pop();
     }
 
-    private void DrawColumnHeaders(DrawingContext dc, int firstCol, int lastCol, double contentLeft, double contentRight)
+    private void DrawColumnHeaders(DrawingContext dc, int firstCol, int lastCol)
     {
         var h = _model.HeaderHeight;
         dc.DrawRectangle(GridTheme.HeaderBackground, null, new Rect(0, 0, ActualWidth, h));
 
-        dc.PushClip(new RectangleGeometry(new Rect(contentLeft, 0, Math.Max(0, contentRight - contentLeft), h)));
+        dc.PushClip(new RectangleGeometry(new Rect(_model.GutterWidth, 0, Math.Max(0, ActualWidth - _model.GutterWidth), h)));
         var pen = new Pen(GridTheme.HeaderLine, 1);
         pen.Freeze();
         for (var c = firstCol; c <= lastCol; c++)
         {
-            var x = _model.ColumnLeft(c) - _hOffset;
+            var x = ColLeft(c);
             var w = _model.GetColumnWidth(c);
             _text!.Draw(dc, ColumnName(c), CellTextRenderer.AlignCenter, x + 2, 0, w - 4, h);
             var lineX = Math.Round(x) + 0.5;
-            if (lineX > contentLeft)
+            if (lineX > _model.GutterWidth)
             {
                 dc.DrawLine(pen, new Point(lineX, 4), new Point(lineX, h - 2));
             }
@@ -564,29 +727,36 @@ public sealed class ExcelGrid : FrameworkElement
         dc.DrawLine(bottomPen, new Point(0, h - 0.5), new Point(ActualWidth, h - 0.5));
     }
 
-    private void DrawGutter(DrawingContext dc, int firstRow, int lastRow, double contentTop, double contentBottom)
+    private void DrawGutter(DrawingContext dc, int firstRow, int lastRow)
     {
-        if (!_model.ShowRowNumbers)
+        if (!_model.ShowRowNumbers || lastRow < firstRow)
         {
             return;
         }
 
         var w = _model.GutterWidth;
-        dc.DrawRectangle(GridTheme.GutterBackground, null, new Rect(0, contentTop, w, Math.Max(0, contentBottom - contentTop)));
-        dc.PushClip(new RectangleGeometry(new Rect(0, contentTop, w, Math.Max(0, contentBottom - contentTop))));
+        var top = Math.Max(_model.HeaderHeight, RowTop(firstRow));
+        var bottom = Math.Min(ContentBottom, RowTop(lastRow) + _model.RowHeight);
+        if (bottom <= top)
+        {
+            return;
+        }
+
+        dc.DrawRectangle(GridTheme.GutterBackground, null, new Rect(0, top, w, bottom - top));
+        dc.PushClip(new RectangleGeometry(new Rect(0, top, w, bottom - top)));
 
         var rowH = _model.RowHeight;
         var selTop = Math.Min(_anchorRow, _activeRow);
         var selBottom = Math.Max(_anchorRow, _activeRow);
         for (var r = firstRow; r <= lastRow; r++)
         {
-            var y = contentTop + (r * rowH) - _vOffset;
+            var y = RowTop(r);
             if (r >= selTop && r <= selBottom)
             {
                 dc.DrawRectangle(GridTheme.SelectionBackground, null, new Rect(0, y, w, rowH));
             }
 
-            _text!.Draw(dc, r == HeaderRowIndex ? "H" : (r + 1).ToString(), CellTextRenderer.AlignCenter, 2, y, w - 6, rowH);
+            _text!.Draw(dc, (r + 1).ToString(), CellTextRenderer.AlignCenter, 2, y, w - 6, rowH);
         }
 
         dc.Pop();
@@ -611,7 +781,7 @@ public sealed class ExcelGrid : FrameworkElement
             return;
         }
 
-        var x = _model.ColumnLeft(_badgeCol) - _hOffset;
+        var x = ColLeft(_badgeCol);
         var w = _model.GetColumnWidth(_badgeCol);
         if (x + w < _model.GutterWidth || x > ActualWidth)
         {
@@ -701,7 +871,7 @@ public sealed class ExcelGrid : FrameworkElement
                 return;
             }
 
-            var headerCol = _model.ColumnAt(p.X + _hOffset);
+            var headerCol = ColAtX(p.X);
             if (headerCol >= 0)
             {
                 _activeRow = HeaderRowIndex;
@@ -715,8 +885,8 @@ public sealed class ExcelGrid : FrameworkElement
             return;
         }
 
-        var row = _model.RowAt(p.Y - _model.HeaderHeight + _vOffset);
-        var col = _model.ColumnAt(p.X + _hOffset);
+        var row = RowAtY(p.Y);
+        var col = ColAtX(p.X);
         if (row < 0 || col < 0)
         {
             return;
@@ -750,8 +920,8 @@ public sealed class ExcelGrid : FrameworkElement
 
         if (_dragging && e.LeftButton == MouseButtonState.Pressed)
         {
-            var row = _model.RowAt(p.Y - _model.HeaderHeight + _vOffset);
-            var col = _model.ColumnAt(p.X + _hOffset);
+            var row = RowAtY(p.Y);
+            var col = ColAtX(p.X);
             if (row >= 0 && col >= 0 && (row != _activeRow || col != _activeCol))
             {
                 _activeRow = row;
@@ -906,7 +1076,7 @@ public sealed class ExcelGrid : FrameworkElement
         }
     }
 
-    /// <summary>把纵向滚动位置设到指定像素（打开文件时定位表头行用）。</summary>
+    /// <summary>把纵向滚动位置设到指定像素（0 = 可滚动区的第一行，冻结块始终在上面）。</summary>
     public void ScrollToRowOffset(double offset)
     {
         _vOffset = Math.Clamp(offset, 0, _vBar.Maximum);
@@ -939,9 +1109,10 @@ public sealed class ExcelGrid : FrameworkElement
         _activeRow = row;
         _activeCol = col;
 
-        // 目标行落在视口上方 1/3 处，上下都留出上下文
+        // 目标行落在视口上方 1/3 处，上下都留出上下文（冻结行不占可滚动区）
         var viewportRows = VisibleRowCount;
-        var desiredTop = Math.Max(0, row - HeaderRowIndex - (viewportRows / 3));
+        var scrollRow = Math.Max(0, row - _model.FreezeRows);
+        var desiredTop = Math.Max(0, scrollRow - (viewportRows / 3));
         _vOffset = Math.Min(desiredTop * _model.RowHeight, _vBar.Maximum);
         _vBar.Value = _vOffset;
 
@@ -953,35 +1124,50 @@ public sealed class ExcelGrid : FrameworkElement
         RaiseActiveCellChanged();
     }
 
+    /// <summary>让当前选中格子保持可见（预览条展开/收起、拖分隔线后调用）。</summary>
+    public void KeepActiveCellVisible()
+    {
+        EnsureVisible(_activeRow, _activeCol);
+        InvalidateVisual();
+    }
+
     private void EnsureVisible(int row, int col)
     {
         var rowH = _model.RowHeight;
-        var top = row * rowH;
-        var bottom = top + rowH;
-        var viewH = Math.Max(rowH, ActualHeight - _model.HeaderHeight - _hBar.Height);
-        if (top < _vOffset)
+        var viewH = Math.Max(rowH, ActualHeight - ContentTop - _hBar.Height);
+
+        // 冻结块里的行永远看得见，不需要滚动
+        if (row >= _model.FreezeRows && row < _model.RowCount)
         {
-            _vOffset = top;
-        }
-        else if (bottom > _vOffset + viewH)
-        {
-            _vOffset = bottom - viewH;
+            var top = (row - _model.FreezeRows) * rowH;
+            if (top < _vOffset)
+            {
+                _vOffset = top;
+            }
+            else if (top + rowH > _vOffset + viewH)
+            {
+                _vOffset = top + rowH - viewH;
+            }
         }
 
         _vOffset = Math.Clamp(_vOffset, 0, _vBar.Maximum);
         _vBar.Value = _vOffset;
 
-        var left = _model.ColumnLeft(col);
-        var right = _model.ColumnRight(col);
-        var viewW = Math.Max(40, ActualWidth - _model.GutterWidth - _vBar.Width);
-        var viewLeft = _hOffset + _model.GutterWidth;
-        if (left < viewLeft)
+        // 横向：冻结列同理
+        if (col >= _model.FreezeCols && col < _model.ColCount)
         {
-            _hOffset = Math.Max(0, left - _model.GutterWidth);
-        }
-        else if (right > viewLeft + viewW)
-        {
-            _hOffset = Math.Max(0, right - viewW - _model.GutterWidth + GridModel.CellPaddingX);
+            var frozenW = _model.FrozenColsWidth;
+            var left = _model.ColumnLeft(col) - _model.GutterWidth - frozenW;
+            var right = left + _model.GetColumnWidth(col);
+            var viewW = Math.Max(40, ActualWidth - _model.GutterWidth - frozenW - _vBar.Width);
+            if (left < _hOffset)
+            {
+                _hOffset = Math.Max(0, left);
+            }
+            else if (right > _hOffset + viewW)
+            {
+                _hOffset = Math.Max(0, right - viewW + GridModel.CellPaddingX);
+            }
         }
 
         _hOffset = Math.Clamp(_hOffset, 0, _hBar.Maximum);
@@ -1006,14 +1192,13 @@ public sealed class ExcelGrid : FrameworkElement
     private int HitColumnEdge(double x, out double edgeX)
     {
         edgeX = 0;
-        var gridX = x + _hOffset;
         var count = Math.Max(1, _model.ColCount);
         for (var c = 0; c < count; c++)
         {
-            var right = _model.ColumnRight(c);
-            if (Math.Abs(gridX - right) <= 3)
+            var right = ColLeft(c) + _model.GetColumnWidth(c);
+            if (Math.Abs(x - right) <= 3)
             {
-                edgeX = right - _hOffset;
+                edgeX = right;
                 return c;
             }
         }

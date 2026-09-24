@@ -307,6 +307,9 @@ internal static class MainProbe
         Console.WriteLine($"GutterWidth            = {model.GutterWidth}");
         Console.WriteLine($"TotalWidth/TotalHeight = {model.TotalWidth} / {model.TotalHeight}");
         Console.WriteLine($"DetectedHeaderRow      = {grid.DetectedHeaderRow}");
+        Console.WriteLine($"FreezeRows/Cols        = {model.Sheet?.FreezeRows} / {model.Sheet?.FreezeCols}"
+            + $"  (grid: {grid.FrozenRowCount} / {grid.FrozenColCount})");
+        Console.WriteLine($"可滚动行数              = {model.ScrollableRowCount} 冻结高度={model.FrozenRowsHeight} 冻结宽={model.FrozenColsWidth}");
         Console.WriteLine($"VisibleRowCount        = {grid.VisibleRowCount}");
         Console.WriteLine($"TopVisibleRow          = {grid.TopVisibleRow}");
         Console.WriteLine($"StatusSize/Row/Hint    = {window.StatusSize.Text} | {window.StatusRow.Text} | {window.StatusHint.Text}");

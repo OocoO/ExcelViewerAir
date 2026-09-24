@@ -43,10 +43,11 @@
                                   IsChecked="True"
                                   Click="OnToggleRowNumbers" />
                         <MenuItem x:Name="MenuShowHeaderRow"
-                                  Header="冻结首行表头(_H)"
+                                  Header="冻结表头(_H)"
                                   IsCheckable="True"
                                   IsChecked="True"
-                                  Click="OnToggleHeaderRow" />
+                                  Click="OnToggleHeaderRow"
+                                  ToolTip="按 Excel 里的冻结窗格把表头几行钉在顶部（没冻结过的表不生效）" />
                         <Separator />
                         <MenuItem Header="放大字号(_+)" InputGestureText="Ctrl+=" Click="OnZoomIn" />
                         <MenuItem Header="缩小字号(_-)" InputGestureText="Ctrl+-" Click="OnZoomOut" />
@@ -267,14 +268,15 @@
                 </Grid>
             </Border>
 
-            <Grid>
+            <Grid x:Name="ContentGrid" SizeChanged="OnContentGridSizeChanged">
                 <Grid.RowDefinitions>
                     <RowDefinition Height="*" />
                     <RowDefinition Height="Auto" />
                     <RowDefinition x:Name="PreviewRow" Height="190" />
                 </Grid.RowDefinitions>
 
-                <Grid x:Name="GridHost" Grid.Row="0">
+                <!-- MinHeight：预览条再高也不能把主表格挤没（窗口矮时由 C# 里夹预览条高度） -->
+                <Grid x:Name="GridHost" Grid.Row="0" MinHeight="104">
                     <controls:ExcelGrid x:Name="Grid" />
                 </Grid>
 

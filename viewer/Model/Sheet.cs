@@ -54,6 +54,15 @@ public sealed class Sheet
     /// <summary>加载耗时（毫秒），状态栏展示用。</summary>
     public long LoadMs { get; set; }
 
+    /// <summary>
+    /// 冻结在顶部的行数（来自 Excel 的冻结窗格配置，0 = 不冻结）。
+    /// 这几行在界面上会被钉住不动，通常就是表头块（字段名 / 中文说明 / 类型…）。
+    /// </summary>
+    public int FreezeRows { get; set; }
+
+    /// <summary>冻结在左侧的列数（0 = 不冻结），横向滚动时钉住不动。</summary>
+    public int FreezeCols { get; set; }
+
     /// <summary>被省略的尾部空白行数。</summary>
     public int SkippedTrailingRows => Math.Max(0, SourceRowCount - RowCount);
 
@@ -97,7 +106,11 @@ public sealed class Sheet
 
         while (_cols.Count < width)
         {
-            _cols.Add(new string[InitialRows]);
+            // 新列整列先填空串：比这一行更早的行里没有这一列，
+            // 不预填就会留下 null，读取方（搜索、渲染）一碰就 NullReferenceException
+            var fresh = new string[InitialRows];
+            Array.Fill(fresh, string.Empty);
+            _cols.Add(fresh);
             _lastRowWithDataByCol.Add(-1);
         }
 
@@ -120,6 +133,19 @@ public sealed class Sheet
                 _lastRowWithDataByCol[c] = rowIndex;
                 NonEmptyCellCount++;
             }
+        }
+
+        // 本行比已有列数窄（CSV 里某行少几个字段很常见）：缺的格子补空串，不能留 null
+        for (var c = width; c < _cols.Count; c++)
+        {
+            var col = _cols[c];
+            if (rowIndex >= col.Length)
+            {
+                Array.Resize(ref col, col.Length * 2);
+                _cols[c] = col;
+            }
+
+            col[rowIndex] = string.Empty;
         }
 
         _rowWidth.Add(width);
@@ -179,7 +205,7 @@ public sealed class Sheet
         }
 
         var c = _cols[col];
-        return (uint)row < (uint)c.Length ? c[row] : string.Empty;
+        return (uint)row < (uint)c.Length ? c[row] ?? string.Empty : string.Empty;
     }
 
     /// <summary>整行是否全空。只扫到该行的实际宽度，比逐列扫更快。</summary>

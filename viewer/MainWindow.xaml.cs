@@ -67,7 +67,7 @@ public partial class MainWindow
         };
 
         // 拖分隔线调过高度后记下来：收起再展开不会跳回默认值
-        PreviewSplitter.DragCompleted += (_, _) => RememberPreviewHeight();
+        PreviewSplitter.DragCompleted += OnPreviewSplitterDragCompleted;
 
         AppPreviewPane(true);
         UpdatePreview();
@@ -180,12 +180,25 @@ public partial class MainWindow
             UpdateSheetTabSelection();
             HideBusy();
 
-            // 带 GDE 标记的配表：真正要看的是字段名那一行。
-            // 打开时把它放到视口最上方（上面保留标记行），省得每次手动往下滚。
-            if (!keepScroll && header.HeaderRowIndex > 0)
+            // 冻结窗格的两个用途：
+            //   1) 冻结块由 ExcelGrid 钉在顶部（表头一直在，往下翻也知道每列是什么）；
+            //   2) 打开时直接看第一行数据，不用手动往下滚。
+            // 没冻结的表沿用老办法：把 GDE_FIELD_NAMES 那一行滚到视口最上方。
+            if (!keepScroll)
             {
-                var rowPx = Grid.Model.RowHeight;
-                Grid.ScrollToRowOffset(Math.Max(0, (header.HeaderRowIndex - 1) * rowPx));
+                if (sheet.FreezeRows > 0)
+                {
+                    Grid.ScrollToRowOffset(0);
+                    if (sheet.RowCount > sheet.FreezeRows)
+                    {
+                        Grid.SetActiveCell(sheet.FreezeRows, 0, ensureVisible: false);
+                    }
+                }
+                else if (header.HeaderRowIndex > 0)
+                {
+                    var rowPx = Grid.Model.RowHeight;
+                    Grid.ScrollToRowOffset(Math.Max(0, (header.HeaderRowIndex - 1) * rowPx));
+                }
             }
 
             // 首屏就绪即记录耗时，用于对比 WPS/Excel 的打开速度
@@ -605,6 +618,7 @@ public partial class MainWindow
     {
         _hideHeaderRow = !MenuShowHeaderRow.IsChecked;
         Grid.HideHeaderRow = _hideHeaderRow;
+        Grid.KeepActiveCellVisible();
         UpdateStatus();
     }
 
@@ -635,7 +649,17 @@ public partial class MainWindow
         StatusCell.Text = $"{ExcelGrid.ColumnName(col)}{row + 1}";
 
         StatusSize.Text = $"{sheet.RowCount:N0} 行 × {sheet.ColCount} 列";
-        if (_sheet is not null && Grid.DetectedHeaderRow > 0)
+        if (Grid.FrozenRowCount > 0)
+        {
+            var frozen = $"表头第 1–{Grid.FrozenRowCount} 行（已冻结）";
+            if (Grid.FrozenColCount > 0)
+            {
+                frozen += $" · 前 {Grid.FrozenColCount} 列冻结";
+            }
+
+            StatusSize.Text += " · " + frozen;
+        }
+        else if (Grid.DetectedHeaderRow > 0)
         {
             StatusSize.Text += $" · 表头在第 {Grid.DetectedHeaderRow + 1} 行";
         }
@@ -676,6 +700,16 @@ public partial class MainWindow
     /// <summary>收起时这一行的高度：够放一行地址 + 摘要 + 「展开」，不会把表头压成半截。</summary>
     private const double PreviewCollapsedHeight = 26;
 
+    /// <summary>预览条最少留的高度（再小就只剩半行字了）。</summary>
+    private const double PreviewMinHeight = 72;
+
+    /// <summary>
+    /// 表格区的最小高度：预览条再高也不能把主表格挤没。
+    /// 少了这个约束，窗口一矮（例如 900x360）预览条会把列标和数据行整块顶掉，
+    /// 看起来就像"展开详情把上面的内容盖住了"。
+    /// </summary>
+    private const double GridMinHeight = 104;
+
     /// <summary>内容预览条默认就是展开的：选中格子直接看到完整内容，不用先按 Ctrl+P。</summary>
     private bool _previewPaneOpen = true;
 
@@ -683,15 +717,17 @@ public partial class MainWindow
 
     /// <summary>
     /// 展开/收起预览条。
-    /// 展开时恢复上次拖出来的高度；收起时只留一行摘要（点一下就能再展开），
-    /// 不再出现"表头和按钮被压成半截、还拖不开"的状态。
+    /// 展开时恢复上次拖出来的高度（但不能挤掉表格的最小高度），
+    /// 收起时只留一行摘要（点一下就能再展开），不会再出现"被压成半截还拖不开"的状态。
     /// </summary>
     private void AppPreviewPane(bool open)
     {
-        RememberPreviewHeight();
+        if (!open)
+        {
+            RememberPreviewHeight();
+        }
 
         _previewPaneOpen = open;
-        PreviewRow.Height = open ? new GridLength(_previewHeight) : new GridLength(PreviewCollapsedHeight);
         MenuPreviewPane.IsChecked = open;
 
         PreviewHeader.Visibility = open ? Visibility.Visible : Visibility.Collapsed;
@@ -700,17 +736,55 @@ public partial class MainWindow
         // 收起时不留分隔线：整条就只剩那一行摘要
         PreviewSplitter.Visibility = open ? Visibility.Visible : Visibility.Collapsed;
 
+        ApplyPreviewHeight();
         UpdatePreview();
     }
 
-    /// <summary>把用户拖出来的高度记下来，收起再展开时按这个高度恢复。</summary>
+    /// <summary>
+    /// 按当前窗口高度决定预览条行高：上限 = 可用高度 - 表格最小高度。
+    /// 窗口被拉矮时预览条自动跟着收，放宽后再回到用户拖出来的高度。
+    /// </summary>
+    private void ApplyPreviewHeight()
+    {
+        // 收起时那一行只有 26px，最小高度必须跟着放开，否则收起状态下会被顶成 72
+        PreviewRow.MinHeight = _previewPaneOpen ? PreviewMinHeight : 0;
+
+        var available = ContentGrid.ActualHeight;
+        if (available > 0)
+        {
+            var max = Math.Max(PreviewMinHeight, available - PreviewSplitter.Height - GridMinHeight);
+            PreviewRow.MaxHeight = max;
+        }
+
+        var target = _previewPaneOpen
+            ? Math.Clamp(_previewHeight, PreviewMinHeight, Math.Max(PreviewMinHeight, PreviewRow.MaxHeight))
+            : PreviewCollapsedHeight;
+        PreviewRow.Height = new GridLength(target);
+    }
+
+    /// <summary>把用户拖出来的高度记下来（不夹），收起再展开 / 窗口变大时按这个值恢复。</summary>
     private void RememberPreviewHeight()
     {
         var h = PreviewRow.Height;
-        if (h.IsAbsolute && h.Value >= 80)
+        if (h.IsAbsolute && h.Value >= PreviewMinHeight)
         {
             _previewHeight = h.Value;
         }
+    }
+
+    /// <summary>内容区尺寸变了（窗口缩放 / 拖动分隔线）：重新夹一次预览条高度，并让选中格子保持可见。</summary>
+    private void OnContentGridSizeChanged(object sender, SizeChangedEventArgs e)
+    {
+        ApplyPreviewHeight();
+
+        // 布局还没走完时 ActualHeight 是旧值，等这一轮排完再校正可见性
+        Dispatcher.BeginInvoke(DispatcherPriority.Background, new Action(() => Grid.KeepActiveCellVisible()));
+    }
+
+    private void OnPreviewSplitterDragCompleted(object sender, DragCompletedEventArgs e)
+    {
+        RememberPreviewHeight();
+        Grid.KeepActiveCellVisible();
     }
 
     private void OnTogglePreviewPane(object sender, RoutedEventArgs e) =>

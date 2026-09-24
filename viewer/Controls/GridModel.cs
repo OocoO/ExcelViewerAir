@@ -26,6 +26,27 @@ public sealed class GridModel
     /// <summary>识别出的表头行（-1 表示没有），列宽自适应时保证它被采样到。</summary>
     public int HeaderRowIndex { get; set; } = -1;
 
+    /// <summary>冻结在顶部的行数（0 = 不冻结）。这几行不参与纵向滚动。</summary>
+    public int FreezeRows { get; private set; }
+
+    /// <summary>冻结在左侧的列数（0 = 不冻结）。这几列不参与横向滚动。</summary>
+    public int FreezeCols { get; private set; }
+
+    /// <summary>冻结行占的高度。</summary>
+    public double FrozenRowsHeight => FreezeRows * RowHeight;
+
+    /// <summary>冻结列占的宽度（不含行号栏）。</summary>
+    public double FrozenColsWidth => FreezeCols <= 0 ? 0 : Math.Max(0, ColumnLeft(FreezeCols) - GutterWidth);
+
+    /// <summary>可纵向滚动的行数。</summary>
+    public int ScrollableRowCount => Math.Max(0, RowCount - FreezeRows);
+
+    public void SetFreeze(int rows, int cols)
+    {
+        FreezeRows = Math.Clamp(rows, 0, Math.Max(0, RowCount));
+        FreezeCols = Math.Clamp(cols, 0, Math.Max(0, ColCount));
+    }
+
     public int RowCount => _sheet?.RowCount ?? 0;
 
     public int ColCount => _sheet?.ColCount ?? 0;
@@ -54,6 +75,7 @@ public sealed class GridModel
     public void SetSheet(Sheet? sheet, bool resetWidths = true)
     {
         _sheet = sheet;
+        SetFreeze(FreezeRows, FreezeCols); // 换表后重新夹一次，避免旧表的冻结行数越界
         AutoFitColumns();
     }
 
@@ -99,10 +121,21 @@ public sealed class GridModel
                 }
             }
 
-            // 表头行可能在采样窗口之外，单独补一次，避免字段名被裁成 "GDE_FIELD_NA…"
-            if (headerRow >= rows && headerRow < sheet.RowCount && maxPx < MaxColumnWidth)
+            // 表头行（字段名）是加粗画的，用常规字体量出来的宽度会差一截，
+            // 这里按加粗余量补一点，免得表头被省略号截成 "GDE_FIELD_NA…"
+            if (headerRow >= 0 && headerRow < sheet.RowCount)
             {
-                maxPx = Accumulate(sheet.Get(headerRow, c), maxPx, measurer, maxUnits);
+                var headerText = sheet.Get(headerRow, c);
+                if (headerText.Length != 0)
+                {
+                    var headerPx = measurer is not null
+                        ? measurer(headerText) * 1.08
+                        : DisplayWidth.Measure(headerText) * 7.2 * 1.08;
+                    if (headerPx > maxPx)
+                    {
+                        maxPx = headerPx;
+                    }
+                }
             }
 
             widths[c] = maxPx == double.MaxValue

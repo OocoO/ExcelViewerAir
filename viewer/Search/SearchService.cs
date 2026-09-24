@@ -232,7 +232,7 @@ public static class SearchService
                 }
 
                 var v = col[r];
-                if (v.Length == 0)
+                if (v is null || v.Length == 0)
                 {
                     continue;
                 }
