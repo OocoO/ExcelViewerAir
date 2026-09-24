@@ -8,14 +8,18 @@
         Height="820"
         MinWidth="620"
         MinHeight="360"
-        Background="#FFF3F3F3"
-        FontFamily="Microsoft YaHei UI, Segoe UI"
+        Background="#FFFFFFFF"
+        FontFamily="{StaticResource UiFontFamily}"
+        TextOptions.TextFormattingMode="Ideal"
+        TextOptions.TextRenderingMode="ClearType"
         AllowDrop="True"
         Drop="OnWindowDrop"
         DragOver="OnWindowDragOver"
         Closing="OnWindowClosing">
 
-    <DockPanel>
+    <!-- 根容器铺一层底色：挂云母时 AppBaseBrush 会被换成 Transparent，
+         材质从这一层透上来；没有云母时它就是 #F3F3F3，离屏自检的合成结果也一致。 -->
+    <DockPanel Background="{DynamicResource AppBaseBrush}">
 
         <!-- ============ 顶部：菜单 + 工具条（尽量压扁，把空间留给表格） ============ -->
         <Border DockPanel.Dock="Top"
@@ -85,14 +89,11 @@
                                Margin="0,0,6,0"
                                VerticalAlignment="Center"
                                FontSize="{StaticResource UiFontSize}"
-                               Foreground="#FF444444" />
+                               Foreground="{StaticResource TextSecondaryBrush}" />
 
                     <Border Grid.Column="1"
                             Width="300"
-                            Background="White"
-                            BorderBrush="#FFC6C6C6"
-                            BorderThickness="1"
-                            CornerRadius="3">
+                            Style="{StaticResource SearchBoxShell}">
                         <Grid>
                             <TextBox x:Name="SearchBox"
                                      Style="{StaticResource SearchBox}"
@@ -101,10 +102,10 @@
                                      PreviewKeyDown="OnSearchKeyDown" />
                             <TextBlock x:Name="SearchPlaceholder"
                                        Text="输入关键字，全表搜索（回车下一条）"
-                                       Margin="8,0,0,0"
+                                       Margin="9,0,0,0"
                                        VerticalAlignment="Center"
                                        FontSize="12"
-                                       Foreground="{StaticResource SubtleBrush}"
+                                       Foreground="{StaticResource TextTertiaryBrush}"
                                        IsHitTestVisible="False" />
                         </Grid>
                     </Border>
@@ -181,7 +182,7 @@
         <!-- ============ 底部：工作表标签 ============ -->
         <Border x:Name="SheetTabBar"
                 DockPanel.Dock="Bottom"
-                Background="#FFEDEDED"
+                Background="{StaticResource ChromeAltBrush}"
                 BorderBrush="{StaticResource ChromeBorderBrush}"
                 BorderThickness="0,1,0,0"
                 Visibility="Collapsed">
@@ -220,8 +221,8 @@
             <!-- 改动比对横幅（diff 模式才显示） -->
             <Border x:Name="DiffBanner"
                     DockPanel.Dock="Top"
-                    Background="#FFFFF6E0"
-                    BorderBrush="#FFE8C88A"
+                    Background="{StaticResource WarningBackgroundBrush}"
+                    BorderBrush="{StaticResource WarningBorderBrush}"
                     BorderThickness="0,0,0,1"
                     Padding="10,7"
                     Visibility="Collapsed">
@@ -235,7 +236,7 @@
                         <TextBlock x:Name="DiffBannerText"
                                    FontSize="13"
                                    FontWeight="SemiBold"
-                                   Foreground="#FFB45A00"
+                                   Foreground="{StaticResource WarningBrush}"
                                    Text="发现改动" />
                         <TextBlock x:Name="DiffDetailText"
                                    FontSize="11.5"
@@ -283,13 +284,9 @@
                 <!-- 拖这条分隔线可以调整预览条高度（它自己占一行，拖的是上面的表格行和下面的预览行） -->
                 <GridSplitter x:Name="PreviewSplitter"
                               Grid.Row="1"
-                              Height="5"
-                              HorizontalAlignment="Stretch"
-                              VerticalAlignment="Center"
-                              Background="{StaticResource SplitterBrush}"
+                              Style="{StaticResource PreviewSplitterStyle}"
                               ResizeBehavior="PreviousAndNext"
                               ResizeDirection="Rows"
-                              ShowsPreview="False"
                               ToolTip="拖动调整预览高度" />
 
                 <!-- ============ 底部：内容预览条（默认展开，选中格子就显示完整内容） ============ -->
@@ -302,16 +299,16 @@
                     <DockPanel Grid.RowSpan="2" Background="{StaticResource ChromeBrush}">
                         <Border x:Name="PreviewHeader"
                                 DockPanel.Dock="Top"
-                                Background="#FFEDEDED"
+                                Background="{StaticResource ChromeAltBrush}"
                                 BorderBrush="{StaticResource ChromeBorderBrush}"
                                 BorderThickness="0,1,0,1"
-                                Padding="8,2">
+                                Padding="10,2">
                             <DockPanel>
                                 <TextBlock x:Name="PreviewAddress"
                                            DockPanel.Dock="Left"
                                            FontSize="12"
                                            FontWeight="SemiBold"
-                                           Foreground="#FF333333"
+                                           Foreground="{StaticResource TextPrimaryBrush}"
                                            VerticalAlignment="Center"
                                            Text="A1" />
                                 <TextBlock x:Name="PreviewMeta"
@@ -340,7 +337,7 @@
                                            DockPanel.Dock="Right"
                                            FontSize="11.5"
                                            Margin="0,0,10,0"
-                                           Foreground="#FFB45A00"
+                                           Foreground="{StaticResource WarningBrush}"
                                            VerticalAlignment="Center"
                                            Visibility="Collapsed"
                                            Text="" />
@@ -361,7 +358,7 @@
                     <!-- 收起状态：只剩这一行（不会出现被切掉一半的按钮），点一下就能再展开 -->
                     <Border x:Name="PreviewCollapsedBar"
                             Grid.RowSpan="2"
-                            Background="#FFEDEDED"
+                            Background="{StaticResource ChromeAltBrush}"
                             BorderBrush="{StaticResource ChromeBorderBrush}"
                             BorderThickness="0,1,0,1"
                             Visibility="Collapsed"
@@ -373,7 +370,7 @@
                                        DockPanel.Dock="Left"
                                        FontSize="12"
                                        FontWeight="SemiBold"
-                                       Foreground="#FF333333"
+                                       Foreground="{StaticResource TextPrimaryBrush}"
                                        VerticalAlignment="Center"
                                        Text="—" />
                             <Button x:Name="BtnPreviewExpand"
@@ -420,7 +417,7 @@
                         <TextBlock x:Name="BusyText"
                                    Text="正在打开…"
                                    FontSize="15"
-                                   Foreground="#FF444444"
+                                   Foreground="{StaticResource TextSecondaryBrush}"
                                    HorizontalAlignment="Center"
                                    TextWrapping="Wrap"
                                    MaxWidth="560" />

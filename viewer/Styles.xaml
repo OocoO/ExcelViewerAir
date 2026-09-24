@@ -2,55 +2,121 @@
                     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
                     xmlns:sys="clr-namespace:System;assembly=System.Runtime">
 
-    <!-- 界面配色：整体浅灰，弱化边框，突出表格内容 -->
-    <SolidColorBrush x:Key="ChromeBrush" Color="#FFF3F3F3" />
-    <SolidColorBrush x:Key="ChromeBorderBrush" Color="#FFD8D8D8" />
-    <SolidColorBrush x:Key="AccentBrush" Color="#FF2E6CC4" />
-    <SolidColorBrush x:Key="MutedBrush" Color="#FF767676" />
-    <SolidColorBrush x:Key="SubtleBrush" Color="#FF9A9A9A" />
-    <!-- 预览条的可拖动分隔线：平时浅灰，鼠标划过变蓝，提示"这里能拖" -->
-    <SolidColorBrush x:Key="SplitterBrush" Color="#FFD6D6D6" />
+    <!--
+        Fluent 设计令牌（取自 WinUI 3 / Windows 11 浅色主题的实际取值）。
+
+        改动约定：这里只放"外壳观感"，表格本身的配色在 Controls\GridTheme.cs ——
+        数据区的对比度是给长时间盯表用的，不要跟着外壳一起调淡。
+    -->
+
+    <!-- 文字：WinUI 用带 alpha 的黑色做层次，越次要越淡 -->
+    <SolidColorBrush x:Key="TextPrimaryBrush" Color="#E4000000" />
+    <SolidColorBrush x:Key="TextSecondaryBrush" Color="#9A000000" />
+    <SolidColorBrush x:Key="TextTertiaryBrush" Color="#72000000" />
+    <SolidColorBrush x:Key="TextDisabledBrush" Color="#5C000000" />
+
+    <!-- 描边：默认 6% 黑，强描边 16%，分隔线 8% -->
+    <SolidColorBrush x:Key="ControlStrokeBrush" Color="#0F000000" />
+    <SolidColorBrush x:Key="ControlStrokeStrongBrush" Color="#29000000" />
+    <SolidColorBrush x:Key="DividerBrush" Color="#14000000" />
+
+    <!-- 交互叠色：WinUI 的 hover / pressed 就是往底色上叠一层半透明黑 -->
+    <SolidColorBrush x:Key="SubtleHoverBrush" Color="#0F000000" />
+    <SolidColorBrush x:Key="SubtlePressedBrush" Color="#0A000000" />
+    <SolidColorBrush x:Key="AccentSubtleBrush" Color="#1A005FB8" />
+
+    <!-- Win11 默认强调色 -->
+    <SolidColorBrush x:Key="AccentBrush" Color="#FF005FB8" />
+    <SolidColorBrush x:Key="AccentHoverBrush" Color="#FF1A6FC4" />
+    <SolidColorBrush x:Key="AccentPressedBrush" Color="#FF0F5AA8" />
+    <SolidColorBrush x:Key="OnAccentBrush" Color="#FFFFFFFF" />
+
+    <!-- 层填色。AppBaseBrush 是根容器的底：挂上云母时会被换成 Transparent 让材质透出来，
+         没有云母时保持 #F3F3F3 —— 所以它必须走 DynamicResource。 -->
+    <SolidColorBrush x:Key="AppBaseBrush" Color="#FFFFFFFF" />
+    <SolidColorBrush x:Key="LayerBrush" Color="#FFF3F3F3" />
+    <SolidColorBrush x:Key="LayerAltBrush" Color="#FFEEEEEE" />
+    <SolidColorBrush x:Key="CardBrush" Color="#FFFFFFFF" />
+
+    <!-- 外壳面：**刻意用不透明色**。
+         曾经试过做成半透明以透出云母（Mica），结果外壳带的实际颜色会变成
+         `0.6 × 浅灰 + 0.4 × 桌面壁纸` —— 壁纸深的地方上下两条就发灰发暗，
+         窗口挪个位置颜色还会变。这个不确定性不值得，改成稳定色。
+         色调跟内容区取齐（白），靠 Divider 做分隔，整个窗口读起来是一张干净的面。
+         想回到原来的浅灰：ChromeBrush 改 #FFF3F3F3、ChromeAltBrush 改 #FFEDEDED。 -->
+    <SolidColorBrush x:Key="ChromeBrush" Color="#FFFFFFFF" />
+    <SolidColorBrush x:Key="ChromeAltBrush" Color="#FFF7F7F7" />
+    <SolidColorBrush x:Key="ChromeBorderBrush" Color="#14000000" />
+
+    <SolidColorBrush x:Key="MutedBrush" Color="#9A000000" />
+    <SolidColorBrush x:Key="SubtleBrush" Color="#72000000" />
+
+    <!-- 预览条的可拖动分隔线：平时几乎看不见，鼠标划过变强调色，提示"这里能拖" -->
+    <SolidColorBrush x:Key="SplitterBrush" Color="#FFE8E8E8" />
+    <SolidColorBrush x:Key="SplitterHoverBrush" Color="#FF005FB8" />
+
+    <!-- 状态栏上的告警色（改动比对横幅等） -->
+    <SolidColorBrush x:Key="WarningBrush" Color="#FF9D5D00" />
+    <SolidColorBrush x:Key="WarningBackgroundBrush" Color="#FFFFF6E0" />
+    <SolidColorBrush x:Key="WarningBorderBrush" Color="#FFE8C88A" />
 
     <sys:Double x:Key="UiFontSize">12.5</sys:Double>
 
-    <!-- 顶部菜单：像截图那样紧凑 -->
+    <!-- Win11 正文首选 Segoe UI Variable，中文回退到微软雅黑 -->
+    <FontFamily x:Key="UiFontFamily">Segoe UI Variable Text, Microsoft YaHei UI, Segoe UI</FontFamily>
+
+    <!-- 控件圆角：WinUI 的 ControlCornerRadius = 4 -->
+    <CornerRadius x:Key="ControlCornerRadius">4</CornerRadius>
+    <CornerRadius x:Key="OverlayCornerRadius">8</CornerRadius>
+
+    <!-- ================= 菜单 ================= -->
+
     <Style x:Key="TopMenuItem" TargetType="MenuItem">
-        <Setter Property="Padding" Value="7,3" />
+        <Setter Property="Padding" Value="8,3" />
         <Setter Property="FontSize" Value="{StaticResource UiFontSize}" />
+        <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}" />
     </Style>
 
     <Style TargetType="Menu">
         <Setter Property="Background" Value="Transparent" />
         <Setter Property="FontSize" Value="{StaticResource UiFontSize}" />
+        <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}" />
     </Style>
 
-    <!-- 工具条按钮：扁平、无边框、悬停才出现底色 -->
+    <!-- ================= 工具条按钮 ================= -->
+
     <Style x:Key="ToolToggle" TargetType="ToggleButton">
         <Setter Property="FontSize" Value="{StaticResource UiFontSize}" />
-        <Setter Property="Padding" Value="7,3" />
+        <Setter Property="Padding" Value="8,3" />
         <Setter Property="Margin" Value="0,0,2,0" />
         <Setter Property="Background" Value="Transparent" />
         <Setter Property="BorderBrush" Value="Transparent" />
-        <Setter Property="Foreground" Value="#FF333333" />
+        <Setter Property="BorderThickness" Value="1" />
+        <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}" />
         <Setter Property="Template">
             <Setter.Value>
                 <ControlTemplate TargetType="ToggleButton">
                     <Border x:Name="Bd"
                             Background="{TemplateBinding Background}"
                             BorderBrush="{TemplateBinding BorderBrush}"
-                            BorderThickness="1"
-                            CornerRadius="3">
+                            BorderThickness="{TemplateBinding BorderThickness}"
+                            CornerRadius="{StaticResource ControlCornerRadius}">
                         <ContentPresenter Margin="{TemplateBinding Padding}"
                                           HorizontalAlignment="Center"
                                           VerticalAlignment="Center" />
                     </Border>
                     <ControlTemplate.Triggers>
                         <Trigger Property="IsMouseOver" Value="True">
-                            <Setter TargetName="Bd" Property="Background" Value="#FFE4E4E4" />
+                            <Setter TargetName="Bd" Property="Background" Value="{StaticResource SubtleHoverBrush}" />
+                            <Setter TargetName="Bd" Property="BorderBrush" Value="{StaticResource ControlStrokeBrush}" />
                         </Trigger>
                         <Trigger Property="IsChecked" Value="True">
-                            <Setter TargetName="Bd" Property="Background" Value="#FFDCE8FA" />
-                            <Setter TargetName="Bd" Property="BorderBrush" Value="#FFA9C7EE" />
+                            <Setter TargetName="Bd" Property="Background" Value="{StaticResource AccentSubtleBrush}" />
+                            <Setter TargetName="Bd" Property="BorderBrush" Value="{StaticResource AccentBrush}" />
+                            <Setter Property="Foreground" Value="{StaticResource AccentBrush}" />
+                        </Trigger>
+                        <Trigger Property="IsPressed" Value="True">
+                            <Setter TargetName="Bd" Property="Background" Value="{StaticResource SubtlePressedBrush}" />
                         </Trigger>
                     </ControlTemplate.Triggers>
                 </ControlTemplate>
@@ -60,12 +126,12 @@
 
     <Style x:Key="ToolButton" TargetType="Button">
         <Setter Property="FontSize" Value="{StaticResource UiFontSize}" />
-        <Setter Property="Padding" Value="7,3" />
+        <Setter Property="Padding" Value="8,3" />
         <Setter Property="Margin" Value="0,0,2,0" />
         <Setter Property="Background" Value="Transparent" />
         <Setter Property="BorderBrush" Value="Transparent" />
         <Setter Property="BorderThickness" Value="1" />
-        <Setter Property="Foreground" Value="#FF333333" />
+        <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}" />
         <Setter Property="Template">
             <Setter.Value>
                 <ControlTemplate TargetType="Button">
@@ -73,20 +139,21 @@
                             Background="{TemplateBinding Background}"
                             BorderBrush="{TemplateBinding BorderBrush}"
                             BorderThickness="{TemplateBinding BorderThickness}"
-                            CornerRadius="3">
+                            CornerRadius="{StaticResource ControlCornerRadius}">
                         <ContentPresenter Margin="{TemplateBinding Padding}"
                                           HorizontalAlignment="Center"
                                           VerticalAlignment="Center" />
                     </Border>
                     <ControlTemplate.Triggers>
                         <Trigger Property="IsMouseOver" Value="True">
-                            <Setter TargetName="Bd" Property="Background" Value="#FFE4E4E4" />
+                            <Setter TargetName="Bd" Property="Background" Value="{StaticResource SubtleHoverBrush}" />
+                            <Setter TargetName="Bd" Property="BorderBrush" Value="{StaticResource ControlStrokeBrush}" />
                         </Trigger>
                         <Trigger Property="IsPressed" Value="True">
-                            <Setter TargetName="Bd" Property="Background" Value="#FFD5D5D5" />
+                            <Setter TargetName="Bd" Property="Background" Value="{StaticResource SubtlePressedBrush}" />
                         </Trigger>
                         <Trigger Property="IsEnabled" Value="False">
-                            <Setter Property="Foreground" Value="#FFB0B0B0" />
+                            <Setter Property="Foreground" Value="{StaticResource TextDisabledBrush}" />
                         </Trigger>
                     </ControlTemplate.Triggers>
                 </ControlTemplate>
@@ -94,23 +161,42 @@
         </Setter>
     </Style>
 
-    <!-- 搜索框：FocusVisualStyle 去掉，避免点击时出现虚线框 -->
+    <!-- ================= 搜索框 ================= -->
+
+    <!-- FocusVisualStyle 去掉，避免点击时出现虚线框 -->
     <Style x:Key="SearchBox" TargetType="TextBox">
         <Setter Property="FontSize" Value="13" />
-        <Setter Property="Padding" Value="6,3" />
-        <Setter Property="BorderBrush" Value="#FFC6C6C6" />
+        <Setter Property="Padding" Value="7,3" />
+        <Setter Property="BorderBrush" Value="{StaticResource ControlStrokeStrongBrush}" />
         <Setter Property="BorderThickness" Value="1" />
-        <Setter Property="Background" Value="White" />
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}" />
+        <Setter Property="CaretBrush" Value="{StaticResource TextPrimaryBrush}" />
         <Setter Property="VerticalContentAlignment" Value="Center" />
         <Setter Property="FocusVisualStyle" Value="{x:Null}" />
     </Style>
 
-    <!-- 工作表标签 -->
+    <!-- 搜索框外框：聚焦时描边加深并透出强调色（WinUI 的输入框聚焦态） -->
+    <Style x:Key="SearchBoxShell" TargetType="Border">
+        <Setter Property="Background" Value="{StaticResource CardBrush}" />
+        <Setter Property="BorderBrush" Value="{StaticResource ControlStrokeStrongBrush}" />
+        <Setter Property="BorderThickness" Value="1" />
+        <Setter Property="CornerRadius" Value="{StaticResource ControlCornerRadius}" />
+        <Style.Triggers>
+            <Trigger Property="IsKeyboardFocusWithin" Value="True">
+                <Setter Property="BorderBrush" Value="{StaticResource AccentBrush}" />
+                <Setter Property="BorderThickness" Value="2" />
+            </Trigger>
+        </Style.Triggers>
+    </Style>
+
+    <!-- ================= 工作表标签 ================= -->
+
     <Style x:Key="SheetTab" TargetType="ToggleButton">
         <Setter Property="FontSize" Value="{StaticResource UiFontSize}" />
         <Setter Property="Padding" Value="14,4" />
         <Setter Property="Margin" Value="0,0,1,0" />
-        <Setter Property="Foreground" Value="#FF444444" />
+        <Setter Property="Foreground" Value="{StaticResource TextSecondaryBrush}" />
         <Setter Property="Template">
             <Setter.Value>
                 <ControlTemplate TargetType="ToggleButton">
@@ -124,10 +210,10 @@
                     </Border>
                     <ControlTemplate.Triggers>
                         <Trigger Property="IsMouseOver" Value="True">
-                            <Setter TargetName="Bd" Property="Background" Value="#FFEAEAEA" />
+                            <Setter TargetName="Bd" Property="Background" Value="{StaticResource SubtleHoverBrush}" />
                         </Trigger>
                         <Trigger Property="IsChecked" Value="True">
-                            <Setter TargetName="Bd" Property="Background" Value="White" />
+                            <Setter TargetName="Bd" Property="Background" Value="{StaticResource CardBrush}" />
                             <Setter TargetName="Bd" Property="BorderBrush" Value="{StaticResource AccentBrush}" />
                             <Setter Property="Foreground" Value="{StaticResource AccentBrush}" />
                             <Setter Property="FontWeight" Value="SemiBold" />
@@ -138,34 +224,86 @@
         </Setter>
     </Style>
 
-    <!-- 底部内容预览：只读多行，文本可选中复制；长文本靠自动换行 + 纵向滚动完整显示 -->
+    <!-- ================= 底部内容预览 ================= -->
+
+    <!-- 只读多行，文本可选中复制；长文本靠自动换行 + 纵向滚动完整显示。
+         数据区保持不透明白底：这里是要逐字看配表内容的地方，不做任何半透明处理。 -->
     <Style x:Key="PreviewBox" TargetType="TextBox">
         <Setter Property="FontSize" Value="12.5" />
-        <Setter Property="FontFamily" Value="Microsoft YaHei UI, Segoe UI, Consolas" />
-        <Setter Property="Padding" Value="8,5" />
+        <Setter Property="FontFamily" Value="Consolas, Cascadia Mono, Microsoft YaHei UI, Segoe UI" />
+        <Setter Property="Padding" Value="10,6" />
         <Setter Property="BorderThickness" Value="0" />
-        <Setter Property="Background" Value="White" />
-        <Setter Property="Foreground" Value="#FF202020" />
+        <Setter Property="Background" Value="{StaticResource CardBrush}" />
+        <Setter Property="Foreground" Value="#FF1B1B1B" />
+        <Setter Property="CaretBrush" Value="{StaticResource TextPrimaryBrush}" />
         <Setter Property="FocusVisualStyle" Value="{x:Null}" />
     </Style>
 
+    <!-- ================= 状态栏文字 ================= -->
+
     <Style x:Key="StatusText" TargetType="TextBlock">
         <Setter Property="FontSize" Value="12" />
-        <Setter Property="Foreground" Value="{StaticResource MutedBrush}" />
+        <Setter Property="Foreground" Value="{StaticResource TextSecondaryBrush}" />
         <Setter Property="VerticalAlignment" Value="Center" />
         <Setter Property="Margin" Value="0,0,14,0" />
     </Style>
 
     <Style x:Key="StatusStrong" TargetType="TextBlock">
         <Setter Property="FontSize" Value="12" />
-        <Setter Property="Foreground" Value="#FF333333" />
+        <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}" />
         <Setter Property="VerticalAlignment" Value="Center" />
         <Setter Property="Margin" Value="0,0,14,0" />
     </Style>
 
+    <!-- ================= 其他 ================= -->
+
     <Style TargetType="Separator">
         <Setter Property="Margin" Value="3,4" />
-        <Setter Property="Background" Value="#FFDDDDDD" />
+        <Setter Property="Background" Value="{StaticResource DividerBrush}" />
     </Style>
+
+    <!-- 可拖动分隔线：WinUI 里这种 grip 平时不显眼，交互时才给强调色 -->
+    <Style x:Key="PreviewSplitterStyle" TargetType="GridSplitter">
+        <Setter Property="Background" Value="{StaticResource SplitterBrush}" />
+        <Setter Property="Height" Value="5" />
+        <Setter Property="HorizontalAlignment" Value="Stretch" />
+        <Setter Property="VerticalAlignment" Value="Center" />
+        <Setter Property="ShowsPreview" Value="False" />
+        <Style.Triggers>
+            <Trigger Property="IsMouseOver" Value="True">
+                <Setter Property="Background" Value="{StaticResource SplitterHoverBrush}" />
+            </Trigger>
+            <Trigger Property="IsDragging" Value="True">
+                <Setter Property="Background" Value="{StaticResource SplitterHoverBrush}" />
+            </Trigger>
+        </Style.Triggers>
+    </Style>
+
+    <!-- ================= 滚动条（已还原成 WPF 默认样式，别再动） ================= -->
+
+    <!--
+        这里曾经换成过 Fluent 风格的自绘滚动条（无箭头、轨道透明、细圆角滑块），
+        已经**整段还原**。原因不是审美，是功能回退：
+
+        WPF 的 Track 按「视口/内容」比例算滑块长度，而且**没有下限**。默认模板之所以
+        在超长表上还能看见滑块，是因为它自带了一个下限；一旦换成自绘模板，这个下限就丢了。
+        实测（test/Languages.xlsx 同族，33899 行）：
+
+            默认 WPF 模板：滑块 8px，正常可见可拖
+            自绘模板    ：滑块 0px —— 纵向滚动条整条不见了，只剩背景色
+
+        试过并**全部无效**的补下限写法（别再花时间）：
+          · Thumb 的局部值 MinHeight / MinWidth
+          · Thumb Style 里的 DataTrigger
+          · ControlTemplate.Triggers + TargetName
+          · 在 ScrollBar 的 Style.Resources / ControlTemplate.Resources / 资源字典顶层
+            放 SystemParameters.VerticalScrollBarButtonHeightKey
+            （MS 文档 "How to: Customize the Thumb Size on a ScrollBar" 推荐的做法）
+
+        要重新做的话，唯一可行的方向是：给 Thumb.Height 挂一个按 Track 高度和比例算、
+        再夹住下限的 IValueConverter —— 单纯在模板/样式里设 MinHeight 是没用的。
+        注意验证时**必须用 3 万行量级的表**：3000 行的表上自绘模板看着还有 5px，
+        问题要到几万行才暴露（这一点当初看漏了，才把回归误判成"没回归"）。
+    -->
 
 </ResourceDictionary>

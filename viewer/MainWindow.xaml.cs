@@ -78,6 +78,45 @@ public partial class MainWindow
         BtnClearSearch.IsEnabled = false;
 
         Loaded += OnLoaded;
+
+        // 外壳外观（圆角 / 云母）要等 HWND 建好才能设，放在 SourceInitialized 里做
+        SourceInitialized += OnSourceInitialized;
+    }
+
+    /// <summary>没有云母时根容器用的不透明层填色，和 Styles.xaml 里的 AppBaseBrush 同色。</summary>
+    private static readonly Brush SolidBaseBrush = Frozen("#FFFFFFFF");
+
+    private void OnSourceInitialized(object? sender, EventArgs e)
+    {
+        Chrome.Apply(this);
+        SyncBaseBrush();
+    }
+
+    /// <summary>
+    /// 云母生效时把根底色让出去，材质才透得上来；没生效就保持不透明的层填色。
+    /// 这一步只改根容器的底，表格数据区自己有底，不会跟着变透明。
+    /// </summary>
+    private void SyncBaseBrush() => SetBaseBrush(Chrome.MicaApplied ? Brushes.Transparent : SolidBaseBrush);
+
+    /// <summary>
+    /// 离屏自检（--png-window）专用：渲染前把让出去的底色补回不透明。
+    /// 不补的话半透明外壳会被合成到透明底上，PNG 与实际观感对不上，自检截图就失去诊断价值了。
+    /// </summary>
+    internal void UseSolidBaseForCapture() => SetBaseBrush(SolidBaseBrush);
+
+    private static void SetBaseBrush(Brush brush)
+    {
+        if (Application.Current is { } app)
+        {
+            app.Resources["AppBaseBrush"] = brush;
+        }
+    }
+
+    private static Brush Frozen(string hex)
+    {
+        var brush = new SolidColorBrush((Color)ColorConverter.ConvertFromString(hex));
+        brush.Freeze();
+        return brush;
     }
 
     private void OnLoaded(object sender, RoutedEventArgs e)

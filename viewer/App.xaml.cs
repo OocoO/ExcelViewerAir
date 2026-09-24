@@ -280,6 +280,7 @@ internal static class MainProbe
 
         Pump(300);
         Console.WriteLine($"窗口已显示: ActualWidth={window.ActualWidth} ActualHeight={window.ActualHeight}");
+        Console.WriteLine($"外壳外观: 圆角={Chrome.Rounded} 云母={Chrome.MicaApplied} (系统 build {Environment.OSVersion.Version.Build})");
 
         window.OpenFileAsync(path);
 
@@ -386,6 +387,10 @@ internal static class MainProbe
         var pngWindow = args.FirstOrDefault(a => a.StartsWith("--png-window=", StringComparison.OrdinalIgnoreCase))?[13..];
         if (!string.IsNullOrEmpty(pngWindow))
         {
+            // 挂上云母时根底色是透明的；离屏渲染要还原成"实际看到的样子"，先补回不透明底
+            window.UseSolidBaseForCapture();
+            Pump(60);
+
             var root = (System.Windows.FrameworkElement)window.Content;
             var w = (int)Math.Ceiling(root.ActualWidth);
             var h = (int)Math.Ceiling(root.ActualHeight);

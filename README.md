@@ -215,6 +215,8 @@ excel2csv/
 ├─ viewer/                          查看器源码（C# / WPF）
 │  ├─ publish/ExcelViewer.exe       ← 直接运行这个
 │  ├─ app.ico                       应用图标（exe / 任务栏 / 标题栏）
+│  ├─ Chrome.cs                     外壳外观：Win11 圆角（云母默认关，见下方「已修的坑」）
+│  ├─ Styles.xaml                   外壳设计令牌与控件模板（Fluent 浅色）
 │  ├─ Model/                        数据模型：字符串池、列式 Sheet、加载器、表头识别、改动比对
 │  ├─ Controls/                     自绘虚拟化表格、布局模型、文本绘制、配色
 │  ├─ Search/                       全表搜索
@@ -421,3 +423,55 @@ python tools\make_diff_fixture.py test\Item.xlsx $env:TEMP\edited\Item_edited.xl
   用 `XmlReader` 读到 `<sheetData>`（或 `</sheetViews>`）就 `break`，不必解压整张 3 万行的表；
   另外 `xl/workbook.xml` 里的 `r:id` 要靠 `xl/_rels/workbook.xml.rels` 映射到具体 `worksheets/sheetN.xml`，
   顺序必须按 `workbook.xml` 里 `<sheet>` 的出现顺序（不能按 rels 或文件名顺序），否则多工作表会认错表头。
+* **云母（Mica）默认是关的，别想当然打开**：本应用是「内容铺满 + 上下两条外壳带承载文字」的形态。
+  早期把外壳带做成 60% 半透明好让云母透上来，结果是外壳带的实际颜色变成
+  `0.6 × 浅灰 + 0.4 × 桌面壁纸` —— 壁纸深的地方上下两条就发灰发暗，窗口在屏幕上挪个位置颜色还会变，
+  同一份界面看着不一样（实测就是这个现象，不是缺什么组件、也不需要下载任何东西）。
+  现在 `Chrome.MicaEnabled` 默认 false，外壳面也改回不透明
+  （`ChromeBrush=#FFFFFFFF`、`ChromeAltBrush=#FFF7F7F7`）。
+  想试材质：`set EXCELVIEWER_MICA=1` 再启动，`--probe` 会打印 `云母=True`。
+  真要用云母，得同时把外壳面调回半透明，否则材质根本透不出来。
+* **真要挂云母，必须先确认系统的「透明效果」是开着的**：`DwmSetWindowAttribute(DWMWA_SYSTEMBACKDROP_TYPE)`
+  在系统关掉「透明效果」（设置 → 个性化 → 颜色）时**仍然返回成功**，但材质根本不会出现。
+  这时候如果把 `Window.Background` 让出去（设成 `Transparent`），窗口就变成一块黑/透明空洞 ——
+  比"没有云母"难看得多。所以 `Chrome.Apply` 会先读
+  `HKCU\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize\EnableTransparency`，
+  读到 0 就不挂云母、底色保持不透明。
+  另外 `--png-window` 渲染前会调 `UseSolidBaseForCapture()` 把底色补回来，
+  否则半透明外壳被合成到透明底上，自检截图与实际观感对不上。
+* **改完 XAML 用 `Copy-Item` 还原文件，会让增量构建跳过重编**：`Copy-Item` 保留源文件的
+  `LastWriteTime`，若备份是改动前建的，还原后时间戳比构建输出还旧，MSBuild 的 up-to-date
+  检查就认为无需重编。症状是"代码明明改了，跑出来还是旧行为" —— 这次 `--probe` 报的表格高度
+  差 2px 就是这么造成的（publish 出来的是陈旧产物）。改完 XAML 要么手动更新时间戳，
+  要么先 `dotnet build` 再 `publish`，**不要把上一次的 publish 产物当验证依据**。
+* **外壳的字体会吃掉 2px 表格可视高度**：正文换成 `Segoe UI Variable Text`（WinUI 的字）之后，
+  顶部那几行比 `Microsoft YaHei UI` 高 2px，表格可视高度 476 → 474。
+  这是刻意取舍（观感优先，2px 不到十分之一行）；要把高度抢回来就把 `MainWindow.xaml` 的
+  `FontFamily` 换回 `Microsoft YaHei UI, Segoe UI`（A/B 验过，换回去精确回到 476）。
+  注意别再去加工具条的纵向 `Padding` —— 那个一动就是真少一行。
+* **别再把滚动条换成自绘模板 —— 这是功能回退，不是换皮**：`Styles.xaml` 里曾经做过一版
+  Fluent 风格滚动条（无箭头、轨道透明、细圆角滑块），已经**整段还原成 WPF 默认样式**。
+  原因是 WPF 的 `Track` 按「视口/内容」比例算滑块长度，而且**没有下限**；默认模板之所以在
+  超长表上还看得见滑块，是它自带了一个下限，换成自绘模板就把它丢了。同一个文件实测：
+
+  | 模板 | 33899 行的表 | 3668 行的表 |
+  | --- | --- | --- |
+  | 默认 WPF | 滑块 8px，可见可拖 | 8px |
+  | 自绘 | **滑块 0px，整条滚动条不见了** | 5px |
+
+  给自绘模板补下限的写法**全部无效**（都实测过）：`Thumb` 的局部值 `MinHeight` /
+  `MinWidth`、`Thumb` Style 里的 `DataTrigger`、`ControlTemplate.Triggers` + `TargetName`、
+  以及在 `ScrollBar` 的 `Style.Resources` / `ControlTemplate.Resources` / 资源字典顶层放
+  `SystemParameters.VerticalScrollBarButtonHeightKey`
+  （MS 文档 "How to: Customize the Thumb Size on a ScrollBar" 推荐的做法）。
+  真要做，唯一可行方向是给 `Thumb.Height` 挂一个按 Track 高度和比例算、再夹住下限的
+  `IValueConverter`；单纯在模板/样式里设 `MinHeight` 没用。
+  **验证时必须用 3 万行量级的表**：3000 行的表上自绘模板看着还有 5px，问题要到几万行才暴露 ——
+  当初就是只看了 3668 行的表，把这个回归误判成了"没回归"，记在这里免得再犯。
+* **XAML 里属性元素（`Style.Resources` / `Style.Triggers`）不能夹在 `Setter` 中间**：
+  放中间会直接 `MC3088 属性元素不能位于元素内容的中间` 编译失败。
+  要么全放前面，要么全放后面。这个错误信息不指向具体原因，容易看懵。
+* **构建脚本报"成功"不代表你的改动进了产物**：本仓库改完 XAML 后一定要看输出里有没有
+  `错误`，再拿 `--probe` 的结果下结论。这次踩了两次：一次是 `Copy-Item` 还原文件保留旧
+  时间戳导致增量构建跳过重编（publish 出来的是陈旧 exe），一次是 `Styles.xaml` 编译失败
+  但脚本继续往下跑、于是测的还是上一版。**先确认构建真的过了，再信测量结果。**
