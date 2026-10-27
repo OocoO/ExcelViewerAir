@@ -25,6 +25,14 @@ public sealed class ExcelGrid : FrameworkElement
 {
     private const int HeaderRowIndex = 0;
 
+    /// <summary>
+    /// 内容到底之后仍可继续滚动的余量：纵向 3 行、横向 160px。
+    /// 最后一行/最后一列因此能滚离视口边缘，不会被滚动条或窗口边框压住。
+    /// </summary>
+    private const int OverscrollRows = 3;
+
+    private const double OverscrollWidth = 160;
+
     private readonly GridModel _model = new();
     private readonly ScrollBar _vBar;
     private readonly ScrollBar _hBar;
@@ -190,13 +198,20 @@ public sealed class ExcelGrid : FrameworkElement
     /// <summary>冻结在左侧的列数（0 = 没冻）。</summary>
     public int FrozenColCount => _model.FreezeCols;
 
-    public int VisibleRowCount => Math.Max(1, (int)((ActualHeight - ContentTop - _hBar.Height) / _model.RowHeight));
+    public int VisibleRowCount => Math.Max(1, (int)(ViewportHeight / _model.RowHeight));
 
     /// <summary>诊断用：当前排版缓存条目数。</summary>
     public int TextLayoutCacheCount => _text?.LayoutCacheCount ?? 0;
 
     /// <summary>当前视口顶部对应的可滚动行号（前几行冻结时不参与滚动）。</summary>
-    public int TopVisibleRow => _model.FreezeRows + Math.Max(0, (int)(_vOffset / _model.RowHeight));
+    public int TopVisibleRow
+    {
+        get
+        {
+            var top = _model.FreezeRows + Math.Max(0, (int)(_vOffset / _model.RowHeight));
+            return Math.Min(top, Math.Max(0, _model.RowCount - 1));
+        }
+    }
 
     // ---------------- 冻结窗格几何 ----------------
 
@@ -206,9 +221,15 @@ public sealed class ExcelGrid : FrameworkElement
     /// <summary>可滚动内容的左边界：行号栏 + 冻结列之后。</summary>
     private double ContentLeft => _model.GutterWidth + _model.FrozenColsWidth;
 
-    private double ContentBottom => Math.Max(ContentTop, ActualHeight - _hBar.Height);
+    private double ContentBottom => Math.Max(ContentTop, ActualHeight - (_hBar.Visibility == Visibility.Visible ? _hBar.Height : 0));
 
-    private double ContentRight => Math.Max(ContentLeft, ActualWidth - _vBar.Width);
+    private double ContentRight => Math.Max(ContentLeft, ActualWidth - (_vBar.Visibility == Visibility.Visible ? _vBar.Width : 0));
+
+    /// <summary>可滚动区的可视高度：扣掉列标、冻结行，以及实际占位的横向滚动条。</summary>
+    private double ViewportHeight => Math.Max(1, ContentBottom - ContentTop);
+
+    /// <summary>可滚动区的可视宽度：扣掉行号栏、冻结列，以及实际占位的纵向滚动条。</summary>
+    private double ViewportWidth => Math.Max(1, ContentRight - ContentLeft);
 
     /// <summary>某个数据行的上边界；冻结行不受滚动影响，其余行减去滚动偏移。</summary>
     private double RowTop(int row) => row < _model.FreezeRows
@@ -325,8 +346,8 @@ public sealed class ExcelGrid : FrameworkElement
 
     private void UpdateScrollBars()
     {
-        var vBarW = 15.0;
-        var hBarH = 15.0;
+        var vBarW = _vBar.Width;
+        var hBarH = _hBar.Height;
 
         var totalH = _model.TotalHeight;
         var totalW = _model.TotalWidth;
@@ -353,25 +374,19 @@ public sealed class ExcelGrid : FrameworkElement
         _vBar.Visibility = needV ? Visibility.Visible : Visibility.Collapsed;
         _hBar.Visibility = needH ? Visibility.Visible : Visibility.Collapsed;
 
-        if (!needV && !needH)
-        {
-            return;
-        }
-
-        var contentH = Math.Max(0, ActualHeight - (needH ? hBarH : 0));
-        var contentW = Math.Max(0, ActualWidth - (needV ? vBarW : 0));
-
-        // 冻结的行/列不参与滚动：滚动范围只算剩下的那部分
-        var frozenH = _model.FrozenRowsHeight;
+        // 冻结的行/列不参与滚动：滚动范围只算剩下的那部分；
+        // 末尾再留出 OverscrollRows / OverscrollWidth 的余量，让最后一行、最后一列能滚离视口边缘。
         var frozenW = _model.FrozenColsWidth;
-        var scrollH = _model.ScrollableRowCount * _model.RowHeight;
-        var scrollW = Math.Max(0, totalW - _model.GutterWidth - frozenW);
+        var scrollH = (_model.ScrollableRowCount * _model.RowHeight) + (OverscrollRows * _model.RowHeight);
+        var scrollW = Math.Max(0, totalW - _model.GutterWidth - frozenW) + OverscrollWidth;
 
+        // 可视区高度/宽度与 OnRender 用的是同一套几何：滚动条不可见时不占位，
+        // 滚动范围按实际能画到的区域计算，最后一行/最后一列都能滚出来。
         _suspendScrollSync = true;
-        _vBar.ViewportSize = Math.Max(1, contentH - _model.HeaderHeight - frozenH);
-        _vBar.Maximum = Math.Max(0, scrollH - _vBar.ViewportSize);
-        _hBar.ViewportSize = Math.Max(1, contentW - _model.GutterWidth - frozenW);
-        _hBar.Maximum = Math.Max(0, scrollW - _hBar.ViewportSize);
+        _vBar.ViewportSize = ViewportHeight;
+        _vBar.Maximum = needV ? Math.Max(0, scrollH - ViewportHeight) : 0;
+        _hBar.ViewportSize = ViewportWidth;
+        _hBar.Maximum = needH ? Math.Max(0, scrollW - ViewportWidth) : 0;
 
         _vOffset = Math.Clamp(_vOffset, 0, _vBar.Maximum);
         _hOffset = Math.Clamp(_hOffset, 0, _hBar.Maximum);
@@ -1134,7 +1149,7 @@ public sealed class ExcelGrid : FrameworkElement
     private void EnsureVisible(int row, int col)
     {
         var rowH = _model.RowHeight;
-        var viewH = Math.Max(rowH, ActualHeight - ContentTop - _hBar.Height);
+        var viewH = Math.Max(rowH, ViewportHeight);
 
         // 冻结块里的行永远看得见，不需要滚动
         if (row >= _model.FreezeRows && row < _model.RowCount)
@@ -1159,7 +1174,7 @@ public sealed class ExcelGrid : FrameworkElement
             var frozenW = _model.FrozenColsWidth;
             var left = _model.ColumnLeft(col) - _model.GutterWidth - frozenW;
             var right = left + _model.GetColumnWidth(col);
-            var viewW = Math.Max(40, ActualWidth - _model.GutterWidth - frozenW - _vBar.Width);
+            var viewW = Math.Max(40, ViewportWidth);
             if (left < _hOffset)
             {
                 _hOffset = Math.Max(0, left);

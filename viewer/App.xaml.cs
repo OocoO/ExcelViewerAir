@@ -9,68 +9,20 @@ namespace ExcelViewer;
 
 public partial class App : Application
 {
+    private readonly ViewerWindows _windows = new();
+    private SingleInstance? _singleInstance;
+
     protected override void OnStartup(StartupEventArgs e)
     {
         base.OnStartup(e);
 
-        if (e.Args.Any(a => a.Equals("--selftest", StringComparison.OrdinalIgnoreCase)))
+        // 自检 / 探针 / 无界面比对：不建主窗口、也不参与单实例，跑完就退出
+        if (TryRunOneShot(e.Args, out var oneShotExitCode))
         {
-            var exitCode = SelfTest.Run(e.Args);
-            Shutdown(exitCode);
+            Shutdown(oneShotExitCode);
             return;
         }
 
-        if (e.Args.Any(a => a.Equals("--layout", StringComparison.OrdinalIgnoreCase)))
-        {
-            Shutdown(LayoutProbe.Run(e.Args));
-            return;
-        }
-
-        if (e.Args.Any(a => a.Equals("--layout-synth", StringComparison.OrdinalIgnoreCase)))
-        {
-            Shutdown(LayoutProbe.RunSynthetic(e.Args));
-            return;
-        }
-
-        if (e.Args.Any(a => a.Equals("--textprobe", StringComparison.OrdinalIgnoreCase)))
-        {
-            Shutdown(LayoutProbe.TextProbe(e.Args));
-            return;
-        }
-
-        if (e.Args.Any(a => a.Equals("--diff-selftest", StringComparison.OrdinalIgnoreCase)))
-        {
-            Shutdown(DiffSelfTest.Run());
-            return;
-        }
-
-        if (e.Args.Any(a => a.Equals("--bench", StringComparison.OrdinalIgnoreCase)))
-        {
-            Shutdown(LayoutProbe.Bench(e.Args));
-            return;
-        }
-
-        if (e.Args.Any(a => a.Equals("--diff-png", StringComparison.OrdinalIgnoreCase)))
-        {
-            Shutdown(DiffProbe.Run(e.Args));
-            return;
-        }
-
-        if (e.Args.Any(a => a.Equals("--probe", StringComparison.OrdinalIgnoreCase)))
-        {
-            Shutdown(MainProbe.Run(e.Args));
-            return;
-        }
-
-        if (e.Args.Any(a => a.Equals("--diff-json", StringComparison.OrdinalIgnoreCase)))
-        {
-            var pair = e.Args.Where(a => !a.StartsWith('-') && File.Exists(a)).Take(2).ToArray();
-            var outPath = e.Args.FirstOrDefault(a => a.StartsWith("--out=", StringComparison.OrdinalIgnoreCase))?[6..];
-            Shutdown(pair.Length == 2 ? EditSession.DumpJson(pair[0], pair[1], outPath) : 1);
-            return;
-        }
-
-        // --edit 需要窗口来跑"启动编辑器 → 等关闭 → 比对"的流程，交给 MainWindow
         DispatcherUnhandledException += (_, args) =>
         {
             MessageBox.Show(
@@ -81,29 +33,83 @@ public partial class App : Application
             args.Handled = true;
         };
 
-        var window = new MainWindow();
-        MainWindow = window;
-        window.Show();
-
-        // --edit 原文件：复制到工作区 → 用 Excel 打开副本 → 关闭后自动进改动比对
-        var editIndex = Array.FindIndex(e.Args, a => a.Equals("--edit", StringComparison.OrdinalIgnoreCase));
-        if (editIndex >= 0)
+        var request = OpenRequest.FromCommandLine(e.Args);
+        if (request is null)
         {
-            var target = e.Args.Skip(editIndex + 1).FirstOrDefault(a => !a.StartsWith('-'));
-            if (target is not null && File.Exists(target))
-            {
-                window.StartEditCopy(target);
-                return;
-            }
+            // --diff / --diff-svn：改动比对是一次性的比对进程
+            ShowDiffInvocation(e.Args);
+            return;
         }
 
+        // 同一个表重复打开：把"要看哪个文件"交给已经在跑的那个查看器，本进程直接退出
+        _singleInstance = new SingleInstance();
+        var hosting = _singleInstance.TryBecomeHost();
+        if (!hosting)
+        {
+            // 这次是用户点着文件启动的，前台权限在本进程身上：先让出去，
+            // 接手的那边才抢得到前台（不然窗口定位到了，也还压在别的程序后面）
+            WindowFocus.AllowAnyProcessForeground();
+
+            if (_singleInstance.TryHandoff(request))
+            {
+                Shutdown(0);
+                return;
+            }
+
+            // 通道连不上：可能上一个查看器正在退出，再抢一次主持权
+            hosting = _singleInstance.TryBecomeHost();
+        }
+
+        if (hosting)
+        {
+            _singleInstance.StartHosting(HandleOpenRequest);
+        }
+
+        // 抢不到主持权又连不上通道（对方卡住了）时也走到这里：就地开窗口，至少能用
+        _windows.Dispatch(request, CreateWindow);
+    }
+
+    protected override void OnExit(ExitEventArgs e)
+    {
+        _singleInstance?.Dispose();
+        _singleInstance = null;
+        base.OnExit(e);
+    }
+
+    /// <summary>建一扇查看器窗口。登记进 <see cref="_windows"/> 由 <see cref="ViewerWindows"/> 统一做。</summary>
+    private MainWindow CreateWindow()
+    {
+        var window = new MainWindow();
+        if (MainWindow is null)
+        {
+            MainWindow = window;
+        }
+
+        window.Closed += (_, _) => _windows.Remove(window);
+        window.Show();
+        return window;
+    }
+
+    /// <summary>另一个进程把「要看哪个表」交过来的地方（已经在 UI 线程上）。</summary>
+    private void HandleOpenRequest(OpenRequest request) => _windows.Dispatch(request, CreateWindow);
+
+    /// <summary>
+    /// <c>--diff 原文件 新文件</c> / <c>--diff-svn …</c>：改动比对视图。
+    ///
+    /// 这两个入口保持「一个进程一个窗口」，不转交给已经在跑的查看器：
+    /// svn 与 TortoiseSVN 会等外部 diff 程序退出，转手给常驻进程会让它们以为比对瞬间就结束了。
+    /// </summary>
+    private void ShowDiffInvocation(string[] args)
+    {
+        var window = CreateWindow();
+
         // --diff-svn：SVN 的外部 diff 入口（TortoiseSVN 与 svn --diff-cmd 都走这里）
-        if (e.Args.Any(a => a.Equals("--diff-svn", StringComparison.OrdinalIgnoreCase)))
+        if (args.Any(a => a.Equals("--diff-svn", StringComparison.OrdinalIgnoreCase)))
         {
             SvnDiffInput.Pair? svnPair;
             try
             {
-                svnPair = SvnDiffInput.Resolve(e.Args);
+                svnPair = SvnDiffInput.Resolve(args);
             }
             catch (Exception ex)
             {
@@ -136,10 +142,9 @@ public partial class App : Application
             return;
         }
 
-        // --diff 老文件 新文件：直接进改动比对视图
-        if (e.Args.Any(a => a.Equals("--diff", StringComparison.OrdinalIgnoreCase)))
+        if (args.Any(a => a.Equals("--diff", StringComparison.OrdinalIgnoreCase)))
         {
-            var pair = e.Args.Where(a => !a.StartsWith('-') && File.Exists(a)).Take(2).ToArray();
+            var pair = args.Where(a => !a.StartsWith('-') && File.Exists(a)).Take(2).ToArray();
             if (pair.Length == 2)
             {
                 window.ShowDiffAsync(pair[0], pair[1]);
@@ -147,12 +152,71 @@ public partial class App : Application
             }
         }
 
-        // 支持命令行 / 右键“用查看器打开”传入的文件
-        var files = e.Args.Where(a => !a.StartsWith('-')).ToArray();
+        // 参数不完整（比如其中一个文件不存在）：退回普通的查看入口
+        var files = args.Where(a => !a.StartsWith('-')).ToArray();
         if (files.Length > 0)
         {
             window.OpenFileAsync(files[0]);
         }
+    }
+
+    /// <summary>
+    /// 自检 / 探针 / 无界面比对这些命令行入口：不建主窗口、不参与单实例，返回的就是进程退出码。
+    /// 返回 false 表示这次是一次正常的界面启动。
+    /// </summary>
+    private static bool TryRunOneShot(string[] args, out int exitCode)
+    {
+        exitCode = 0;
+        bool Has(string name) => args.Any(a => a.Equals(name, StringComparison.OrdinalIgnoreCase));
+
+        if (Has("--selftest"))
+        {
+            exitCode = SelfTest.Run(args);
+        }
+        else if (Has("--layout"))
+        {
+            exitCode = LayoutProbe.Run(args);
+        }
+        else if (Has("--layout-synth"))
+        {
+            exitCode = LayoutProbe.RunSynthetic(args);
+        }
+        else if (Has("--textprobe"))
+        {
+            exitCode = LayoutProbe.TextProbe(args);
+        }
+        else if (Has("--diff-selftest"))
+        {
+            exitCode = DiffSelfTest.Run();
+        }
+        else if (Has("--bench"))
+        {
+            exitCode = LayoutProbe.Bench(args);
+        }
+        else if (Has("--diff-png"))
+        {
+            exitCode = DiffProbe.Run(args);
+        }
+        else if (Has("--probe"))
+        {
+            exitCode = MainProbe.Run(args);
+        }
+        else if (Has("--diff-json"))
+        {
+            var pair = args.Where(a => !a.StartsWith('-') && File.Exists(a)).Take(2).ToArray();
+            var outPath = args.FirstOrDefault(a => a.StartsWith("--out=", StringComparison.OrdinalIgnoreCase))?[6..];
+            exitCode = pair.Length == 2 ? EditSession.DumpJson(pair[0], pair[1], outPath) : 1;
+        }
+        else if (Has("--dedup-selftest"))
+        {
+            exitCode = DedupSelfTest.Run();
+        }
+        else
+        {
+            return false;
+        }
+
+        return true;
     }
 }
 

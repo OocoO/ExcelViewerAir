@@ -1,7 +1,9 @@
 <Application x:Class="ExcelViewer.App"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-             ShutdownMode="OnMainWindowClose">
+             ShutdownMode="OnLastWindowClose">
+    <!-- ShutdownMode 必须是 OnLastWindowClose：一个进程里可以有多扇窗口（一个表一扇），
+         用 OnMainWindowClose 的话关掉最先打开的那扇会把其余窗口一起带走。 -->
     <Application.Resources>
         <ResourceDictionary>
             <ResourceDictionary.MergedDictionaries>

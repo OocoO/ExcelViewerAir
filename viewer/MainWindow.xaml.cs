@@ -14,12 +14,20 @@ using Microsoft.Win32;
 
 namespace ExcelViewer;
 
-public partial class MainWindow
+public partial class MainWindow : IViewerWindow
 {
     private readonly DispatcherTimer _searchDebounce;
     private readonly StringPool _pool = new();
 
     private string? _filePath;
+
+    /// <summary>
+    /// 这个窗口代表哪个文件（<see cref="FileKey"/> 归一后的路径）。
+    /// 点开就立刻记下、不等解析完成 —— 三万行的表要读几百毫秒，
+    /// 这期间再点同一个表不能再冒出第二个窗口。
+    /// </summary>
+    private string? _documentKey;
+
     private List<string> _sheetNames = new();
     private Sheet? _sheet;
     private int _sheetIndex = -1;
@@ -125,6 +133,18 @@ public partial class MainWindow
         UpdateStatus();
     }
 
+    // ================= 去重：被 ViewerWindows 当成一扇普通窗口 =================
+
+    string? IViewerWindow.DocumentKey => _documentKey;
+
+    bool IViewerWindow.IsShowingDiff => _diffView?.IsActive == true;
+
+    void IViewerWindow.OpenPath(string path) => OpenFileAsync(path);
+
+    void IViewerWindow.StartEdit(string path) => StartEditCopy(path);
+
+    void IViewerWindow.BringToFront() => WindowFocus.BringToFront(this);
+
     // ================= 打开 / 加载 =================
 
     public async void OpenFileAsync(string path)
@@ -140,6 +160,8 @@ public partial class MainWindow
             ShowBusyError("这个文件类型暂时看不了，目前支持 xlsx / xlsm / xls / xlsb / csv。");
             return;
         }
+
+        _documentKey = FileKey.Of(path);
 
         _loadCts?.Cancel();
         var cts = new CancellationTokenSource();
@@ -961,6 +983,14 @@ public partial class MainWindow
             return;
         }
 
+        if (_editInProgress)
+        {
+            // 这扇窗口已经在走一次编辑流程（「用副本编辑」点了两次）：不再复制第二份副本 ——
+            // 两份副本都改完时"该把哪份写回原文件"就说不清了
+            WindowFocus.BringToFront(this);
+            return;
+        }
+
         var editor = EditSession.FindEditor();
         if (editor is null)
         {
@@ -984,6 +1014,7 @@ public partial class MainWindow
         OpenFileAsync(sourcePath);
         _editingPath = sourcePath;
         _editingCopy = copy;
+        _editInProgress = true;
 
         ShowBusy("已用副本打开编辑器…", $"编辑的是副本：{copy}\n保存后在 Excel 里关闭它，这里会自动弹出改动比对。");
 
@@ -1015,10 +1046,15 @@ public partial class MainWindow
             HideBusy();
             ShowBusyError("启动编辑器没能完成：" + ex.Message);
         }
+        finally
+        {
+            _editInProgress = false;
+        }
     }
 
     private string? _editingPath;
     private string? _editingCopy;
+    private bool _editInProgress;
 
     /// <summary>等到文件大小与时间戳稳定（避免读到正在写入的半成品）。</summary>
     private static void WaitForFileSettled(string path, TimeSpan timeout)
