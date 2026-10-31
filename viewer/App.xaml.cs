@@ -364,6 +364,7 @@ internal static class MainProbe
         var grid = window.Grid;
         var model = grid.Model;
         Console.WriteLine($"加载完成: {ready}");
+        Console.WriteLine($"窗口标题               = {window.Title}");
         Console.WriteLine($"MainWindow._sheet      = {Describe(Field(window, "_sheet"))}");
         Console.WriteLine($"ExcelGrid.Model.Sheet  = {Describe(model.Sheet)}");
         Console.WriteLine($"Model.RowCount/ColCount= {model.RowCount} / {model.ColCount}");
@@ -414,6 +415,7 @@ internal static class MainProbe
                 }
             }
 
+            Console.WriteLine($"改动比对标题           = {window.Title}");
             Console.WriteLine($"改动比对横幅           = {window.DiffBannerText.Text}");
             Console.WriteLine($"改动比对明细           = {window.DiffDetailText.Text}");
         }

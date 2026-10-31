@@ -190,7 +190,7 @@ public partial class MainWindow : IViewerWindow
             ClearSearchUi();
 
             BuildSheetTabs();
-            Title = $"Excel 查看器 — {Path.GetFileName(path)}";
+            Title = $"{Path.GetFileName(path)} — Excel 查看器";
 
             await LoadSheetAsync(0, keepScroll: false);
         }
@@ -1119,7 +1119,7 @@ public partial class MainWindow : IViewerWindow
             PreviewCollapsedAddress.Text = string.Empty;
             PreviewCollapsedText.Text = "改动比对中 — 关闭对比后内容预览条会自动恢复";
             _diffView?.Show(report, oldLabel ?? oldPath, newLabel ?? newPath);
-            Title = $"Excel 查看器 — 改动比对：{Path.GetFileName(newLabel ?? newPath)}";
+            Title = $"{Path.GetFileName(newLabel ?? newPath)}（改动比对）— Excel 查看器";
         }
         catch (Exception ex)
         {
@@ -1229,7 +1229,7 @@ public partial class MainWindow : IViewerWindow
         AppPreviewPane(true);
         if (_filePath is not null)
         {
-            Title = $"Excel 查看器 — {Path.GetFileName(_filePath)}";
+            Title = $"{Path.GetFileName(_filePath)} — Excel 查看器";
             OpenFileAsync(_filePath);
         }
     }
